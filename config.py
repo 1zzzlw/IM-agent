@@ -23,6 +23,14 @@ class ModelConfig(BaseModel):
     llm_base_url: str = ""
     llm_api_key: str = ""
 
+class DatabaseConfig(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = 3306
+    user: str = "root"
+    password: str = ""
+    name: str = "zzz-im-server"
+    charset: str = "utf8mb4"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -35,6 +43,6 @@ class Settings(BaseSettings):
     app: AppConfig = Field(default_factory=AppConfig)
     nacos: NacosConfig = Field(default_factory=NacosConfig)
     chat: ModelConfig = Field(default_factory=ModelConfig)
-
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
 
 config = Settings()

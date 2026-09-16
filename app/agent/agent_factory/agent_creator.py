@@ -9,7 +9,12 @@ class AgentCreator:
         model = config.model_name
         api_key = config.api_key or ""
 
-        llm = llm_node_adapter.get_atapted_llm_node(provider=provider, model=model, api_key=api_key)
+        llm = llm_node_adapter.get_atapted_llm_node(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            config=config,
+        )
 
         return llm
 

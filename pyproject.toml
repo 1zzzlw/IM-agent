@@ -13,4 +13,5 @@ dependencies = [
     "langchain-openai>=1.6.2",
     "nacos-sdk-python>=3.2.0",
     "openai>=3.11.0",
+    "pymysql>=1.2.0",
 ]

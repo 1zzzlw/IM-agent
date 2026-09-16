@@ -41,7 +41,7 @@ BASE_URL = {  # Base URL for the LLM service
     'moonshot': 'https://api.moonshot.cn/v1',
 
     # XiaomiMIMO
-    'xiaomimimo': 'https://api.xiaomimimo.com/v1',
+    'mimo': 'https://api.xiaomimimo.com/v1',
 }
 
 MAX_RETRY = 8  # Max retry when llm_call failure, make sure it great than 3
