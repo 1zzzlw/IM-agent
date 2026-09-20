@@ -22,6 +22,7 @@ class AIMessageRequest(ApiModel):
     content: str
     image_url: str | None = None
     personality_id: str | None = None
+    workspace_name: str | None = None
 
     config: AgentConfigRequest
 

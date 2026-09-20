@@ -1,7 +1,7 @@
 from typing import Any
 from langchain.chat_models import BaseChatModel
 from .llm_factory import get_llm_node
-from app.domain.entities.message import AgentConfigRequest
+from app.domain.entities.ai_message import AgentConfigRequest
 
 class LlmNodeAdapter:
     """

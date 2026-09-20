@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
-from app.domain.entities.message import AgentConfigRequest
+from app.domain.entities.ai_message import AgentConfigRequest
 from config import config
 
 

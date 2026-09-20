@@ -2,7 +2,7 @@ from typing import Any
 from langchain.chat_models import BaseChatModel
 from app.config.global_config import BASE_URL
 from .llm_creator import *
-from app.domain.entities.message import AgentConfigRequest
+from app.domain.entities.ai_message import AgentConfigRequest
 
 
 def get_llm_node(*, provider: str, model: str = "", api_key: str = "",

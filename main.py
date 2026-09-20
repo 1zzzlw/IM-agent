@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from app.api.ai_message import router as chat_router
 from app.api.ai_config import router as config_router
+from app.api.ai_file import router as file_router
 from app.services.nacos_service import nacos_service
 
 
@@ -26,6 +27,7 @@ app = FastAPI(
 
 app.include_router(chat_router)
 app.include_router(config_router)
+app.include_router(file_router)
 
 if __name__ == "__main__":
     import uvicorn

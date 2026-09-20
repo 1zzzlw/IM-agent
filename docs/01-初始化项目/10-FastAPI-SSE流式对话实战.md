@@ -246,14 +246,13 @@ from collections.abc import AsyncIterator
 
 from app.agent.agent import agent_running
 from app.domain.entities.ai_stream import AIStreamEvent
-from app.domain.entities.message import AIMessageRequest
+from app.domain.entities.ai_message import AIMessageRequest
 from app.integrations.database.ai_conversation_repository import (
     insert_ai_conversation,
     select_ai_conversation,
     touch_ai_conversation,
 )
 from app.integrations.database.ai_message_repository import insert_ai_message
-
 
 logger = logging.getLogger(__name__)
 
@@ -1134,7 +1133,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.domain.entities.message import AIMessageRequest
+from app.domain.entities.ai_message import AIMessageRequest
 from app.services import ai_message_service
 
 

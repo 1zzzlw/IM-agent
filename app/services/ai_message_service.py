@@ -1,8 +1,12 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+
+from langchain_core.messages import AIMessageChunk
+
 from app.agent.agent import agent_running
-from app.domain.entities.message import AIMessageRequest
+from app.agent.tools.workspace_tools import build_workspace_tools
+from app.domain.entities.ai_message import AIMessageRequest
 from app.domain.entities.ai_stream import AIStreamEvent
 from app.integrations.database.ai_conversation_repository import (
     insert_ai_conversation,
@@ -10,6 +14,7 @@ from app.integrations.database.ai_conversation_repository import (
     touch_ai_conversation,
 )
 from app.integrations.database.ai_message_repository import insert_ai_message
+from app.services.workspace_service import WorkspaceNotFoundError, workspace_service
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +68,60 @@ def _save_assistant_message(body: AIMessageRequest, content: str) -> int:
     return message_id
 
 
+def _workspace_system_prompt(workspace_name: str) -> str:
+    return (
+        f"当前已选择工作区：{workspace_name}。"
+        "文件工具中的 path 必须使用相对于工作区根目录的路径。"
+        "需要了解目录时先调用 list_workspace_files，需要查看内容时调用 read_workspace_file。"
+        "创建或完整覆盖文件使用 write_workspace_file，局部修改优先使用 edit_workspace_file。"
+        "仅当用户明确要求修改或删除文件时，才能调用写入、修改或删除工具。"
+        "不得猜测文件内容，也不得声称执行了未经工具确认的文件操作。"
+    )
+
+
+async def _stream_model_output(
+        body: AIMessageRequest,
+) -> AsyncIterator[AIMessageChunk | AIStreamEvent]:
+    if not body.workspace_name:
+        model = agent_running.submit_agent_task(body.config)
+        async for chunk in model.astream(body.content):
+            if isinstance(chunk, AIMessageChunk):
+                yield chunk
+        return
+
+    workspace = workspace_service.get(
+        user_id=body.user_id,
+        workspace_name=body.workspace_name,
+    )
+    agent = agent_running.submit_agent_task(
+        body.config,
+        tools=build_workspace_tools(workspace),
+        system_prompt=_workspace_system_prompt(workspace.name),
+    )
+    async for stream_mode, data in agent.astream(
+            {"messages": [{"role": "user", "content": body.content}]},
+        stream_mode=["messages", "custom"],
+    ):
+        if stream_mode == "custom":
+            event_type = data.get("type") if isinstance(data, dict) else None
+            if event_type in {"tool.request", "tool.completed"}:
+                yield AIStreamEvent(
+                    event=event_type,
+                    data={key: value for key, value in data.items() if key != "type"},
+                )
+            continue
+
+        chunk, _metadata = data
+        if isinstance(chunk, AIMessageChunk):
+            yield chunk
+
+
 async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
     full_content_parts: list[str] = []
     full_reasoning_parts: list[str] = []
 
     try:
         await asyncio.to_thread(_prepare_user_message, body)
-
-        model = agent_running.submit_agent_task(body.config)
 
         yield AIStreamEvent(
             event="run.started",
@@ -80,7 +131,12 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
             },
         )
 
-        async for chunk in model.astream(body.content):
+        async for output in _stream_model_output(body):
+            if isinstance(output, AIStreamEvent):
+                yield output
+                continue
+
+            chunk = output
             reasoning_delta = (chunk.additional_kwargs or {}).get("reasoning_content", "")
             if reasoning_delta:
                 full_reasoning_parts.append(reasoning_delta)
@@ -125,6 +181,11 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
             body.user_id,
         )
         raise
+    except WorkspaceNotFoundError as exc:
+        yield AIStreamEvent(
+            event="run.failed",
+            data={"message": str(exc)},
+        )
     except Exception:
         logger.exception(
             "AI stream failed: conversation_id=%s user_id=%s",

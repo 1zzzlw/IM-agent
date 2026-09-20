@@ -10,7 +10,7 @@ from app.domain.entities.ai_conversation import (
     AIConversationResponse,
     RenameAIConversationRequest,
 )
-from app.domain.entities.message import AIMessageRequest, AIMessageResponse
+from app.domain.entities.ai_message import AIMessageRequest, AIMessageResponse
 from app.integrations.database.ai_conversation_repository import (
     delete_ai_conversation,
     rename_ai_conversation,
