@@ -1,9 +1,8 @@
 from uuid import uuid4
-
 from langchain_core.tools import BaseTool, tool
 from langgraph.config import get_stream_writer
 
-from app.services.tool_request_dispatcher import tool_request_dispatcher
+from app.services.tool_dispatcher import tool_request_dispatcher
 from app.services.workspace_service import WorkspaceContext, workspace_service
 
 MAX_WRITE_CHARS = 2_000_000
@@ -83,10 +82,10 @@ def build_workspace_tools(workspace: WorkspaceContext) -> list[BaseTool]:
 
     @tool
     async def edit_workspace_file(
-        path: str,
-        old_text: str,
-        new_text: str,
-        replace_all: bool = False,
+            path: str,
+            old_text: str,
+            new_text: str,
+            replace_all: bool = False,
     ) -> str:
         """精确替换工作区文件中的文本。默认要求 old_text 只出现一次。"""
         if not old_text:

@@ -23,6 +23,7 @@ class ModelConfig(BaseModel):
     llm_base_url: str = ""
     llm_api_key: str = ""
 
+
 class DatabaseConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 3306
@@ -30,6 +31,17 @@ class DatabaseConfig(BaseModel):
     password: str = ""
     name: str = "zzz-im-server"
     charset: str = "utf8mb4"
+
+
+class RedisConfig(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = Field(default=6379, ge=1, le=65535)
+    db: int = Field(default=0, ge=0)
+    password: str | None = None
+    max_connections: int = Field(default=20, ge=1)
+    socket_timeout: float = Field(default=5, gt=0)
+    socket_connect_timeout: float = Field(default=5, gt=0)
+    decode_responses: bool = True
 
 
 class Settings(BaseSettings):
@@ -44,5 +56,7 @@ class Settings(BaseSettings):
     nacos: NacosConfig = Field(default_factory=NacosConfig)
     chat: ModelConfig = Field(default_factory=ModelConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    redis: RedisConfig = Field(default_factory=RedisConfig)
+
 
 config = Settings()

@@ -4,16 +4,16 @@ from collections.abc import AsyncIterator
 
 from langchain_core.messages import AIMessageChunk
 
-from app.agent.agent import agent_running
-from app.agent.tools.workspace_tools import build_workspace_tools
-from app.domain.entities.ai_message import AIMessageRequest
-from app.domain.entities.ai_stream import AIStreamEvent
-from app.integrations.database.ai_conversation_repository import (
+from app.agent.runtime import agent_runtime
+from app.agent.tools.workspace import build_workspace_tools
+from app.integrations.database.conversation_repository import (
     insert_ai_conversation,
     select_ai_conversation,
     touch_ai_conversation,
 )
-from app.integrations.database.ai_message_repository import insert_ai_message
+from app.integrations.database.message_repository import insert_ai_message
+from app.schemas.message import AIMessageRequest
+from app.schemas.stream import AIStreamEvent
 from app.services.workspace_service import WorkspaceNotFoundError, workspace_service
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ def create_conversation_title(content: str) -> str:
     return " ".join(content.split())[:24] or "新的对话"
 
 
+# 数据库中插入用户消息
 def _prepare_user_message(body: AIMessageRequest) -> None:
     conversation = select_ai_conversation(
         conversation_id=body.conversation_id,
@@ -51,6 +52,7 @@ def _prepare_user_message(body: AIMessageRequest) -> None:
     )
 
 
+# 数据库中插入大模型响应的消息
 def _save_assistant_message(body: AIMessageRequest, content: str) -> int:
     message_id = insert_ai_message(
         conversation_id=body.conversation_id,
@@ -83,7 +85,7 @@ async def _stream_model_output(
         body: AIMessageRequest,
 ) -> AsyncIterator[AIMessageChunk | AIStreamEvent]:
     if not body.workspace_name:
-        model = agent_running.submit_agent_task(body.config)
+        model = agent_runtime.create_agent(body.config)
         async for chunk in model.astream(body.content):
             if isinstance(chunk, AIMessageChunk):
                 yield chunk
@@ -93,14 +95,14 @@ async def _stream_model_output(
         user_id=body.user_id,
         workspace_name=body.workspace_name,
     )
-    agent = agent_running.submit_agent_task(
+    agent = agent_runtime.create_agent(
         body.config,
         tools=build_workspace_tools(workspace),
         system_prompt=_workspace_system_prompt(workspace.name),
     )
     async for stream_mode, data in agent.astream(
             {"messages": [{"role": "user", "content": body.content}]},
-        stream_mode=["messages", "custom"],
+            stream_mode=["messages", "custom"],
     ):
         if stream_mode == "custom":
             event_type = data.get("type") if isinstance(data, dict) else None
@@ -121,8 +123,10 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
     full_reasoning_parts: list[str] = []
 
     try:
+        # 异步插入用户消息
         await asyncio.to_thread(_prepare_user_message, body)
 
+        # 前端接收到 run.started 后开始展示 AI 消息
         yield AIStreamEvent(
             event="run.started",
             data={
@@ -133,6 +137,7 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
 
         async for output in _stream_model_output(body):
             if isinstance(output, AIStreamEvent):
+                # 工具事件，直接传给前端，再前端展示调用了什么工具
                 yield output
                 continue
 
@@ -156,12 +161,15 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
             )
 
         full_content = "".join(full_content_parts)
+
+        # 异步添加大模型响应的消息到数据库中
         message_id = await asyncio.to_thread(
             _save_assistant_message,
             body,
             full_content,
         )
 
+        # 一次性下发完整 content + reasoningContent，前端可用于兜底校验 / 重新渲染
         yield AIStreamEvent(
             event="message.completed",
             data={
@@ -170,10 +178,14 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
                 "reasoningContent": "".join(full_reasoning_parts),
             },
         )
+
+        # 发送运行完成的事件
         yield AIStreamEvent(
             event="done",
             data={"conversationId": body.conversation_id},
         )
+
+    # 一些异常处理
     except asyncio.CancelledError:
         logger.info(
             "AI stream cancelled: conversation_id=%s user_id=%s",

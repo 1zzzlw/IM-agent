@@ -1,21 +1,10 @@
 from fastapi import FastAPI
-from contextlib import asynccontextmanager
 
 from app.api.ai_message import router as chat_router
-from app.api.ai_config import router as config_router
-from app.api.ai_file import router as file_router
-from app.services.nacos_service import nacos_service
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await nacos_service.register()
-    print("项目启动成功")
-    try:
-        yield
-    finally:
-        await nacos_service.deregister()
-        print("项目关闭成功")
+from app.api.conversation import router as conversation_router
+from app.api.model_config import router as config_router
+from app.api.workspace import router as workspace_router
+from app.core.lifespan import lifespan
 
 
 app = FastAPI(
@@ -26,8 +15,9 @@ app = FastAPI(
 )
 
 app.include_router(chat_router)
+app.include_router(conversation_router)
 app.include_router(config_router)
-app.include_router(file_router)
+app.include_router(workspace_router)
 
 if __name__ == "__main__":
     import uvicorn

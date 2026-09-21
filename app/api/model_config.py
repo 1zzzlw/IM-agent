@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.domain.entities.ai_config import (
+from app.schemas.model_config import (
     AddModelConfigRequest,
     AddModelConfigResponse,
     DeleteModelConfigResponse,
@@ -12,7 +12,7 @@ from app.domain.entities.ai_config import (
     UpdateModelConfigRequest,
     UpdateModelConfigResponse,
 )
-from app.integrations.database.ai_model_config_repository import (
+from app.integrations.database.model_config_repository import (
     delete_model_config,
     insert_model_config,
     select_model_config_by_id,
@@ -108,8 +108,8 @@ def update_model(body: UpdateModelConfigRequest):
     response_model=DeleteModelConfigResponse,
 )
 def delete_model(
-    config_id: int,
-    user_id: Annotated[str, Query(alias="userId")],
+        config_id: int,
+        user_id: Annotated[str, Query(alias="userId")],
 ):
     affected_rows = delete_model_config(
         config_id=config_id,

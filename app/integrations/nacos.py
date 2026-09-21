@@ -8,7 +8,7 @@ from v2.nacos import (
     RegisterInstanceParam,
 )
 
-from config import config
+from app.core.config import config
 
 logger = logging.getLogger(__name__)
 

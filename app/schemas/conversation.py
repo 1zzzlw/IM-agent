@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from app.domain.entities.base import ApiModel
+from app.schemas.base import ApiModel
 
 
 class AIConversationResponse(ApiModel):

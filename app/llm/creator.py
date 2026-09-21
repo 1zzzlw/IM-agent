@@ -1,8 +1,8 @@
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
-from app.domain.entities.ai_message import AgentConfigRequest
-from config import config
+from app.core.config import config
+from app.schemas.message import AgentConfigRequest
 
 
 class PatchedChatOpenAI(ChatOpenAI):

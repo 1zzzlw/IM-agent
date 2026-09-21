@@ -4,7 +4,7 @@ from typing import Any
 from pymysql.connections import Connection
 from pymysql.cursors import DictCursor
 
-from config import config
+from app.core.config import config
 
 
 def get_mysql_connection() -> Connection:

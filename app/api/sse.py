@@ -1,5 +1,5 @@
 import json
-from app.domain.entities.ai_stream import AIStreamEvent
+from app.schemas.stream import AIStreamEvent
 
 
 def encode_sse(event: AIStreamEvent):

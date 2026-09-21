@@ -3,17 +3,17 @@ from collections.abc import Sequence
 from langchain.agents import create_agent as create_langchain_agent
 from langchain_core.tools import BaseTool
 
-from app.domain.entities.ai_message import AgentConfigRequest
-from app.agent.LLM.llm_adapter import llm_node_adapter
+from app.llm.adapter import llm_node_adapter
+from app.schemas.message import AgentConfigRequest
 
 
-class AgentCreator:
+class AgentRuntime:
 
     def create_agent(
-        self,
-        config: AgentConfigRequest,
-        tools: Sequence[BaseTool] | None = None,
-        system_prompt: str | None = None,
+            self,
+            config: AgentConfigRequest,
+            tools: Sequence[BaseTool] | None = None,
+            system_prompt: str | None = None,
     ):
         provider = config.provider_name
         model = config.model_name
@@ -36,4 +36,4 @@ class AgentCreator:
         )
 
 
-agent_creator = AgentCreator()
+agent_runtime = AgentRuntime()

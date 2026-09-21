@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.domain.entities.base import ApiModel
+from app.schemas.base import ApiModel
 
 
 class AddModelConfigRequest(ApiModel):

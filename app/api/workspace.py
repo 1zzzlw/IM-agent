@@ -1,12 +1,14 @@
 from fastapi import APIRouter, HTTPException, status
 
-from app.domain.entities.ai_file import (
-    RegisterWorkspaceRequest,
-    WorkspaceResponse,
+from app.schemas.tool import (
     WorkspaceToolResultRequest,
     WorkspaceToolResultResponse,
 )
-from app.services.tool_request_dispatcher import (
+from app.schemas.workspace import (
+    RegisterWorkspaceRequest,
+    WorkspaceResponse,
+)
+from app.services.tool_dispatcher import (
     ToolCallMismatchError,
     ToolCallNotFoundError,
     tool_request_dispatcher,
