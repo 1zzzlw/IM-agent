@@ -1,6 +1,7 @@
 from uuid import uuid4
 from langchain_core.tools import BaseTool, tool
-from langgraph.config import get_stream_writer
+from langgraph.config import (
+    get_stream_writer)
 
 from app.services.tool_dispatcher import tool_request_dispatcher
 from app.services.workspace_service import WorkspaceContext, workspace_service

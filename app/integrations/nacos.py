@@ -1,5 +1,4 @@
-import logging
-
+from loguru import logger
 from v2.nacos import (
     ClientConfigBuilder,
     DeregisterInstanceParam,
@@ -7,10 +6,8 @@ from v2.nacos import (
     NacosNamingService,
     RegisterInstanceParam,
 )
-
 from app.core.config import config
 
-logger = logging.getLogger(__name__)
 
 
 class NacosService:

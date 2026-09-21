@@ -31,6 +31,11 @@ class DatabaseConfig(BaseModel):
     password: str = ""
     name: str = "zzz-im-server"
     charset: str = "utf8mb4"
+    min_cached: int = Field(default=1, ge=0)
+    max_cached: int = Field(default=10, ge=0)
+    max_connections: int = Field(default=20, ge=1)
+    blocking: bool = True
+    connect_timeout: int = Field(default=5, gt=0)
 
 
 class RedisConfig(BaseModel):
@@ -42,6 +47,17 @@ class RedisConfig(BaseModel):
     socket_timeout: float = Field(default=5, gt=0)
     socket_connect_timeout: float = Field(default=5, gt=0)
     decode_responses: bool = True
+
+
+class EmbeddingModelConfig(BaseModel):
+    name: str = ""
+    api_key: str = ""
+    base_url: str = ""
+
+
+class RagConfig(BaseModel):
+    persist_dir: str = ""
+    collection_name: str = ""
 
 
 class Settings(BaseSettings):
@@ -57,6 +73,8 @@ class Settings(BaseSettings):
     chat: ModelConfig = Field(default_factory=ModelConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    embedding: EmbeddingModelConfig = Field(default_factory=EmbeddingModelConfig)
+    rag: RagConfig = Field(default_factory=RagConfig)
 
 
 config = Settings()

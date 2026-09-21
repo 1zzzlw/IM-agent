@@ -78,9 +78,11 @@ def rename_ai_conversation(
 
 
 def delete_ai_conversation(*, conversation_id: str, user_id: str) -> int:
+    """多次删除操作时，需要手动获得连接进行选择性删除"""
     connection = get_mysql_connection()
     try:
         with connection.cursor() as cursor:
+            # 该 sql 语句加上了行锁 ‘FOR UPDATE’ 如果这三条sql单独执行，那么该行锁就失效了
             cursor.execute(
                 """
                 SELECT id
@@ -97,7 +99,8 @@ def delete_ai_conversation(*, conversation_id: str, user_id: str) -> int:
 
             cursor.execute(
                 """
-                DELETE FROM ai_message
+                DELETE
+                FROM ai_message
                 WHERE conversation_id = %s
                   AND user_id = %s
                 """,
