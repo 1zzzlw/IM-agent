@@ -14,6 +14,7 @@ class ToolCallMismatchError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ToolCallResult:
+    tool_call_id: str
     success: bool
     content: str | None
     error: str | None
@@ -31,14 +32,14 @@ class ToolRequestDispatcher:
         self._pending: dict[str, PendingToolCall] = {}
 
     async def request(
-        self,
-        *,
-        user_id: str,
-        workspace_name: str,
-        operation: str,
-        arguments: dict[str, Any],
-        stream_writer: Callable[[dict[str, Any]], None],
-        timeout_seconds: float = 120,
+            self,
+            *,
+            user_id: str,
+            workspace_name: str,
+            operation: str,
+            arguments: dict[str, Any],
+            stream_writer: Callable[[dict[str, Any]], None],
+            timeout_seconds: float = 120,
     ) -> ToolCallResult:
         tool_call_id = f"tool-{uuid4()}"
         future = asyncio.get_running_loop().create_future()
@@ -63,14 +64,14 @@ class ToolRequestDispatcher:
             self._pending.pop(tool_call_id, None)
 
     def resolve(
-        self,
-        *,
-        tool_call_id: str,
-        user_id: str,
-        workspace_name: str,
-        success: bool,
-        content: str | None,
-        error: str | None,
+            self,
+            *,
+            tool_call_id: str,
+            user_id: str,
+            workspace_name: str,
+            success: bool,
+            content: str | None,
+            error: str | None,
     ) -> None:
         pending = self._pending.get(tool_call_id)
         if pending is None or pending.future.done():
@@ -80,6 +81,7 @@ class ToolRequestDispatcher:
 
         pending.future.set_result(
             ToolCallResult(
+                tool_call_id=tool_call_id,
                 success=success,
                 content=content,
                 error=error,

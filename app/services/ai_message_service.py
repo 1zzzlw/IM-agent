@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from langchain_core.messages import AIMessageChunk
 
 from app.agent.runtime import agent_runtime
+from app.agent.prompts import build_workspace_prompt
 from app.agent.tools.workspace import build_workspace_tools
 from app.integrations.database.conversation_repository import (
     insert_ai_conversation,
@@ -14,7 +15,6 @@ from app.integrations.database.conversation_repository import (
 from app.integrations.database.message_repository import insert_ai_message
 from app.schemas.message import AIMessageRequest
 from app.schemas.stream import AIStreamEvent
-from app.services.workspace_service import WorkspaceNotFoundError, workspace_service
 
 logger = logging.getLogger(__name__)
 
@@ -70,35 +70,38 @@ def _save_assistant_message(body: AIMessageRequest, content: str) -> int:
     return message_id
 
 
-def _workspace_system_prompt(workspace_name: str) -> str:
-    return (
-        f"当前已选择工作区：{workspace_name}。"
-        "文件工具中的 path 必须使用相对于工作区根目录的路径。"
-        "需要了解目录时先调用 list_workspace_files，需要查看内容时调用 read_workspace_file。"
-        "创建或完整覆盖文件使用 write_workspace_file，局部修改优先使用 edit_workspace_file。"
-        "仅当用户明确要求修改或删除文件时，才能调用写入、修改或删除工具。"
-        "不得猜测文件内容，也不得声称执行了未经工具确认的文件操作。"
-    )
-
-
 async def _stream_model_output(
         body: AIMessageRequest,
 ) -> AsyncIterator[AIMessageChunk | AIStreamEvent]:
+    # 没有 workspace_name，创建不带workspace工具的agent
     if not body.workspace_name:
+        # 注意：这条分支下 system prompt 也不会生效，模型是裸模型
+        logger.warning(
+            "AI 运行未携带 workspace_name，走纯文本分支（无工具、无 system prompt）: conversation_id=%s",
+            body.conversation_id,
+        )
+        # 基于当前对话的配置来创建 agent
         model = agent_runtime.create_agent(body.config)
         async for chunk in model.astream(body.content):
             if isinstance(chunk, AIMessageChunk):
                 yield chunk
         return
 
-    workspace = workspace_service.get(
+    # 有 workspace_name，挂载 workspace 专属工具；工作区本身由客户端持有，服务端不做登记
+    tools = build_workspace_tools(
         user_id=body.user_id,
         workspace_name=body.workspace_name,
     )
+    logger.info(
+        "AI 运行已挂载 %d 个工具: workspace=%s conversation_id=%s",
+        len(tools),
+        body.workspace_name,
+        body.conversation_id,
+    )
     agent = agent_runtime.create_agent(
         body.config,
-        tools=build_workspace_tools(workspace),
-        system_prompt=_workspace_system_prompt(workspace.name),
+        tools=tools,
+        system_prompt=build_workspace_prompt(body.workspace_name),
     )
     async for stream_mode, data in agent.astream(
             {"messages": [{"role": "user", "content": body.content}]},
@@ -193,11 +196,6 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
             body.user_id,
         )
         raise
-    except WorkspaceNotFoundError as exc:
-        yield AIStreamEvent(
-            event="run.failed",
-            data={"message": str(exc)},
-        )
     except Exception:
         logger.exception(
             "AI stream failed: conversation_id=%s user_id=%s",

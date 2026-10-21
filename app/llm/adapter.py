@@ -3,6 +3,7 @@ from langchain.chat_models import BaseChatModel
 from app.llm.factory import get_llm_node
 from app.schemas.message import AgentConfigRequest
 
+
 class LlmNodeAdapter:
     """
     Adapter for:
@@ -30,5 +31,6 @@ class LlmNodeAdapter:
         #     raise ProviderNotFound(f"LLM provider: {provider} is Unsupported at now.", provider=provider)
 
         return get_llm_node(provider=provider, model=model, api_key=api_key, config=config)
+
 
 llm_node_adapter = LlmNodeAdapter()

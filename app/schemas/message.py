@@ -20,9 +20,9 @@ class AIMessageRequest(ApiModel):
     role: str
     message_type: int
     content: str
+    workspace_name: str | None = None
     image_url: str | None = None
     personality_id: str | None = None
-    workspace_name: str | None = None
 
     config: AgentConfigRequest
 

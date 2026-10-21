@@ -10,6 +10,7 @@ class PatchedChatOpenAI(ChatOpenAI):
     适配 OpenAI 的 ChatOpenAI 的子类
     主要处理：思考模式参数注入、流式 reasoning_content 解析
     """
+
     def _convert_chunk_to_generation_chunk(
             self,
             chunk: dict,

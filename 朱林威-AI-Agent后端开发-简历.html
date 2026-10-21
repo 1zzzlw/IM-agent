@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>朱林威 - 个人简历</title>
+  <style>
+    :root {
+      --ink: #1f2937;
+      --muted: #5f6b7a;
+      --accent: #174f7a;
+      --accent-soft: #edf4f8;
+      --line: #cbd7df;
+      --paper: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      padding: 12px;
+      color: var(--ink);
+      background: #eef1f3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 12.1px;
+      font-weight: 400;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .resume {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 10mm 14mm 8mm;
+      overflow: hidden;
+      background: var(--paper);
+      box-shadow: 0 4px 22px rgba(24, 50, 68, 0.12);
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 20px;
+      align-items: end;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .name {
+      color: #123f61;
+      font-size: 25px;
+      font-weight: 700;
+      letter-spacing: 5px;
+      line-height: 1.05;
+    }
+
+    .target {
+      margin-top: 7px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .target-label {
+      margin-right: 9px;
+      color: var(--muted);
+      font-size: 10.8px;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .contact {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2px;
+      color: var(--muted);
+      font-size: 10.8px;
+      text-align: right;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .profile {
+      margin-top: 7px;
+      padding: 6px 9px;
+      color: #344454;
+      background: var(--accent-soft);
+      border-left: 3px solid #5f8eae;
+      font-size: 11.35px;
+      line-height: 1.48;
+    }
+
+    .section {
+      margin-top: 8px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 5px;
+      color: var(--accent);
+      font-size: 13.8px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .section-title::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    .education-row,
+    .item-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: baseline;
+    }
+
+    .education-main,
+    .item-name {
+      font-size: 12.5px;
+      font-weight: 650;
+    }
+
+    .education-detail,
+    .item-role {
+      margin-left: 7px;
+      color: var(--muted);
+      font-size: 10.8px;
+      font-weight: 500;
+    }
+
+    .date {
+      flex: none;
+      color: var(--muted);
+      font-size: 10.7px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .skills {
+      display: grid;
+      gap: 2px;
+    }
+
+    .skill {
+      color: #34404d;
+      font-size: 11.25px;
+      line-height: 1.5;
+    }
+
+    .block-label {
+      margin: 5px 0 1px;
+      color: var(--accent);
+      font-size: 11.6px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .skills ul {
+      display: grid;
+      gap: 0;
+    }
+
+    .skills li {
+      margin-top: 0;
+      line-height: 1.4;
+    }
+
+    .skill-label,
+    .project-title,
+    .bullet-label {
+      color: #263f52;
+      font-weight: 600;
+    }
+
+    .project-title {
+      color: var(--ink);
+    }
+
+    .bullet-label {
+      white-space: nowrap;
+    }
+
+    .item+.item {
+      margin-top: 7px;
+    }
+
+    .item-summary {
+      margin: 2px 0 3px;
+      color: var(--muted);
+      font-size: 11.05px;
+      line-height: 1.48;
+    }
+
+    .tags {
+      color: #466276;
+      font-size: 10.2px;
+      font-weight: 500;
+    }
+
+    ul {
+      list-style: none;
+    }
+
+    li {
+      position: relative;
+      margin-top: 1px;
+      padding-left: 11px;
+      font-size: 11.25px;
+      line-height: 1.46;
+    }
+
+    li::before {
+      content: "•";
+      position: absolute;
+      left: 1px;
+      top: -0.5px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    @media print {
+
+      html,
+      body {
+        width: 210mm;
+        min-height: 297mm;
+      }
+
+      body {
+        padding: 0;
+        background: #fff;
+      }
+
+      .resume {
+        width: 210mm;
+        height: auto;
+        min-height: 297mm;
+        overflow: visible;
+        padding: 9mm 13mm 7mm;
+        box-shadow: none;
+        page-break-after: avoid;
+      }
+
+      .section,
+      .item {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="resume">
+    <header class="header">
+      <div>
+        <h1 class="name">朱林威</h1>
+        <p class="target"><span class="target-label">求职意向</span>AI Agent 全栈开发工程师</p>
+      </div>
+      <div class="contact">
+        <a href="tel:18539312155">18539312155</a>
+        <a href="mailto:zzzlew2155@163.com">zzzlew2155@163.com</a>
+        <a href="https://github.com/1zzzlw">github.com/1zzzlw</a>
+      </div>
+    </header>
+
+    <section class="section">
+      <h2 class="section-title">专业技能</h2>
+      <div class="skills">
+        <ul>
+          <li><span class="bullet-label">Agent 架构：</span>熟练使用 LangGraph 构建状态化工作流，掌握条件路由、Checkpoint 断点续跑与 interrupt 人工确认；熟练使用 LangChain 工具调用与自定义 Embedding。</li>
+          <li><span class="bullet-label">RAG：</span>熟练掌握语义分片、父子分片、向量检索、元数据过滤与规则重排；熟悉 Hit@K / Recall@K / MRR 召回评估与引用校验。</li>
+          <li><span class="bullet-label">Python 服务：</span>熟练使用 FastAPI、Pydantic、asyncio 与 loguru；了解 WebSocket 流式推送与心跳重连。</li>
+          <li><span class="bullet-label">Java 微服务：</span>熟练掌握 Java 核心知识与集合、并发工具，熟悉 Spring Boot、Spring Cloud Alibaba、OpenFeign 与 Nacos，理解服务注册发现与网关鉴权原理。</li>
+          <li><span class="bullet-label">数据与中间件：</span>熟悉 MySQL 事务与锁机制、Redis 多数据结构与 Lua 原子脚本、Redisson 分布式锁、RabbitMQ Topic 交换机与手动 ACK；了解 Canal binlog 缓存失效。</li>
+          <li><span class="bullet-label">Netty：</span>熟练使用自定义二进制协议与 Pipeline 责任链，掌握粘包半包解码、策略模式分发与 IdleStateHandler 心跳保活。</li>
+          <li><span class="bullet-label">前端与工程化：</span>熟练使用 Vue 3、TypeScript、Three.js 与 GitLab CI、Jenkins、Docker 部署。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">实习经历</h2>
+      <article class="item">
+        <div class="item-head">
+          <div><span class="item-name">杭州木风投资管理公司</span><span class="item-role">AI Agent 开发实习生</span></div>
+          <span class="date">2026.06 — 2026.09</span>
+        </div>
+        <p class="item-summary">
+          <span class="project-title">项目背景：</span>服务于 3D 虚拟世界的建筑生成需求，用户用自然语言即可生成可校验、可版本化、可继续编辑的 Blueprint /
+          ScenePatch；Agent 层在已有 .wild 参数化语言规范与 Three.js 渲染引擎基础上从 0 到 1 设计与开发，最终目标是搭建人机协同编辑工作台——Agent 以 Patch
+          增量持续修改场景，用户也可手动编辑，双方改动经版本号检测冲突、确认后合入。<br>
+          <span class="project-title">我的职责：</span>负责 Agent 状态化工作流与生成边界设计，以「低 / 中 / 高 / 极高」四档粒度开关调节生成复杂度与预算，plan
+          节点按图纸构件标记差集动态派活并受控并发；同时负责 Three.js 渲染优化与前端人机协同编辑界面（三轴拖拽、参数调节与 Patch 确认）。
+        </p>
+        <p class="block-label">核心技术实践</p>
+        <ul>
+          <li><span class="bullet-label">生成边界与坐标语义锁定：</span>wild 场景语言中同一坐标字段在不同构件类型下含义不同，模型直接手写会静默放错位置、错了也难定位；为此把坐标语义锁进代码：开口按宿主墙局部坐标定位、踏步由 stepCount 推导、默认值唯一事实源为构件注册表，模型侧只经沙箱化解释器描述构件意图，坐标类错误在编译期以缺陷形式报出。编译环节零模型调用、纯函数，同输入逐字节一致。</li>
+          <li><span class="bullet-label">校验契约与独立回读：</span>校验若只信生成过程的内存状态，schema 通过的蓝图仍可能带着几何错误落盘；故每项验收都落成独立检查脚本中的断言，回读产物后执行：踏步总高与梯段起止高差一致、梯段端部有支承、平台宽度达标、梯井不与楼板冲突、逐路线净宽净高达标、材质引用闭合，错误结构化定位到是哪扇门、哪堵墙。校验范围如实声明静态边界，交付核验记录脚本与设计参数的组合字节指纹，可重放、可追溯。</li>
+          <li><span class="bullet-label">知识库按能力边界重建：</span>知识库若收进模型通识，检索只会喂回模板化内容；故只收录协议规范与引擎能力说明，从源头抑制输出同质化。召回走语义分片加向量检索与元数据过滤，用 60 题正负样本集按 Hit@K、Recall@K、MRR 量化效果；门控在距离阈值经样本校准前只观测不拦截，避免误伤正常请求。候选知识先进隔离区，审核通过后由唯一脚本入库并同步索引，防漏件。</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">项目经历</h2>
+      <article class="item">
+        <div class="item-head">
+          <div><span class="item-name">仿微信聊天 + 创新imAgent工作台项目</span><span class="item-role">独立全栈开发</span></div>
+          <span class="date">2025.11 — 至今</span>
+        </div>
+        <p class="item-summary">
+          项目描述：以 Netty 微服务 IM 系统为业务底座，Spring Cloud Gateway 统一鉴权与路由、桌面端承载交互的 AI
+          增强型 IM 平台。<a class="tags"
+            href="https://github.com/1zzzlw/IM-SpringCloud-Upgrade">项目地址：github.com/1zzzlw/IM-SpringCloud-Upgrade</a>
+        </p>
+        <p class="block-label">项目难点</p>
+        <ul>
+          <li><span class="bullet-label">集群路由与定向转发：</span>早期用 Redisson
+            发布订阅做集群间转发，集群增多后每发一条消息都会广播到所有集群，性能随集群数线性放大；定位到广播模型缺少定向投递能力。改为 Redis
+            路由表记录用户所在集群，按「集群 ID ↔ 队列 ID」对应关系定向投递 MQ，同集群直接转发、离线消息暂存 Redis ZSet 并以雪花 ID 作 score
+            保序；后续消费端改手动 ACK + Redisson 幂等锁去重防重复消费。</li>
+          <li><span class="bullet-label">登录态无感刷新：</span>早期用单 Token，IM 待机时间长、用户久未操作就要重新登录，体验割裂。改为 access + refresh 双
+            Token，refresh
+            有效期更长并由网关在每次请求中滑动续期，用户无感刷新；同时支持多端登录，各自维护独立 Token 集合。</li>
+          <li><span class="bullet-label">自定义协议与 Netty 流水线：</span>早期把所有逻辑堆在单个
+            Handler，编解码、连接管理、消息路由与业务处理耦合在一起，新增一种消息类型就得改核心链路、也无法独立复用；定位到职责未分离导致的链路膨胀。改为按 Netty
+            Pipeline 拆分 14 个 Handler，MessageCodecSharable 编解码、MessageDispatcherHandler
+            策略模式分发 7 类消息、IdleStateHandler 做 90 秒读空闲心跳，私聊、群聊、好友申请各自分发、互不影响；协议侧设计 16
+            字节固定头 + 变长消息体，基于 LengthFieldBasedFrameDecoder 处理 TCP 粘包半包；后续补 Epoll / NIO 跨平台自适应。
+          </li>
+          <li><span class="bullet-label">大文件分片上传：</span>分片逻辑最初放在 Electron
+            渲染层（Vue），问题是一切换路由传输就中断、进度全部丢失。定位到根因是渲染层生命周期不受应用控制。改为把分片上传下沉到主进程，用线程池并发切片，基于文件
+            MD5 实现秒传，基于 Redis ZSet 记录已上传分片实现断点续传与失败重传，并支持暂停与继续。</li>
+          <li><span class="bullet-label">高并发与数据一致性：</span>并发登录堆积大量旧 Token、抢红包超领、朋友圈热点 Key
+            同时失效引发回源风暴；定位到三者同源——多步操作非原子，且依赖「先查后写」的时序假设。抢红包与并发登录用 Redis Lua 把「幂等判定 + 计数扣减 +
+            记录写入」压进单脚本原子执行；资金侧采用 MySQL 行锁 + 余额条件更新 + Redis 幂等锁三层校验，转账按 userId 排序加锁规避死锁；朋友圈缓存用 Cache-Aside + Canal
+            订阅 binlog 异步失效，随机 TTL + Pipeline 写入打散过期时间，并以唯一索引兜底幂等；后续用 JMeter
+            三组场景对比优化前后。</li>
+          <li><span class="bullet-label">imAgent 跨语言架构选型：</span>面向服务端部署与本地工作区操作，划分 Java IM 业务、Python Agent 编排与
+            Electron 本地文件及命令执行职责，复用网关鉴权与 Nacos 服务发现；基于 LangChain/LangGraph 和 FastAPI，以 SSE 下发工具请求、HTTP
+            回传结果，串联代码搜索、diff 预览、文件修改与测试验证；通过内容哈希校验防止覆盖人工改动，结合运行标识、超时与取消机制管理执行状态，形成可检查的单 Agent
+            编码闭环。</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">教育背景</h2>
+      <div class="education-row">
+        <div><span class="education-main">河南师范大学</span><span class="education-detail">软件工程 · 本科在读</span></div>
+        <span class="date">2024.09 — 2028.06</span>
+      </div>
+    </section>
+
+  </main>
+</body>
+
+</html>
