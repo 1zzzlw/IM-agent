@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from langchain.agents import create_agent as create_langchain_agent
 from langchain_core.tools import BaseTool
 
+from langgraph.graph.state import CompiledStateGraph
+
 from app.llm.adapter import llm_node_adapter
 from app.schemas.message import AgentConfigRequest
 
@@ -10,10 +12,10 @@ from app.schemas.message import AgentConfigRequest
 class AgentRuntime:
 
     def create_agent(
-            self,
-            config: AgentConfigRequest,
-            tools: Sequence[BaseTool] | None = None,
-            system_prompt: str | None = None,
+        self,
+        config: AgentConfigRequest,
+        tools: Sequence[BaseTool] | None = None,
+        system_prompt: str | None = None,
     ):
         provider = config.provider_name
         model = config.model_name
@@ -34,6 +36,11 @@ class AgentRuntime:
             tools=tools,
             system_prompt=system_prompt,
         )
+
+    def create_graph(self) -> CompiledStateGraph:
+        from app.agent.graph import build_agent_graph
+
+        return build_agent_graph()
 
 
 agent_runtime = AgentRuntime()

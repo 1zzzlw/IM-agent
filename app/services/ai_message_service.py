@@ -16,6 +16,8 @@ from app.integrations.database.message_repository import insert_ai_message
 from app.schemas.message import AIMessageRequest
 from app.schemas.stream import AIStreamEvent
 
+from app.agent.state import AgentState, AgentContext
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,44 +73,84 @@ def _save_assistant_message(body: AIMessageRequest, content: str) -> int:
 
 
 async def _stream_model_output(
-        body: AIMessageRequest,
+    body: AIMessageRequest,
 ) -> AsyncIterator[AIMessageChunk | AIStreamEvent]:
-    # 没有 workspace_name，创建不带workspace工具的agent
-    if not body.workspace_name:
-        # 注意：这条分支下 system prompt 也不会生效，模型是裸模型
-        logger.warning(
-            "AI 运行未携带 workspace_name，走纯文本分支（无工具、无 system prompt）: conversation_id=%s",
-            body.conversation_id,
-        )
-        # 基于当前对话的配置来创建 agent
-        model = agent_runtime.create_agent(body.config)
-        async for chunk in model.astream(body.content):
-            if isinstance(chunk, AIMessageChunk):
-                yield chunk
-        return
+    # # 没有 workspace_name，创建不带workspace工具的agent
+    # if not body.workspace_name:
+    #     # 注意：这条分支下 system prompt 也不会生效，模型是裸模型
+    #     logger.warning(
+    #         "AI 运行未携带 workspace_name，走纯文本分支（无工具、无 system prompt）: conversation_id=%s",
+    #         body.conversation_id,
+    #     )
+    #     # 基于当前对话的配置来创建 agent
+    #     model = agent_runtime.create_agent(body.config)
+    #     async for chunk in model.astream(body.content):
+    #         if isinstance(chunk, AIMessageChunk):
+    #             yield chunk
+    #     return
 
-    # 有 workspace_name，挂载 workspace 专属工具；工作区本身由客户端持有，服务端不做登记
-    tools = build_workspace_tools(
+    # # 有 workspace_name，挂载 workspace 专属工具；工作区本身由客户端持有，服务端不做登记
+    # tools = build_workspace_tools(
+    #     user_id=body.user_id,
+    #     workspace_name=body.workspace_name,
+    # )
+    # logger.info(
+    #     "AI 运行已挂载 %d 个工具: workspace=%s conversation_id=%s",
+    #     len(tools),
+    #     body.workspace_name,
+    #     body.conversation_id,
+    # )
+    # agent = agent_runtime.create_agent(
+    #     body.config,
+    #     tools=tools,
+    #     system_prompt=build_workspace_prompt(body.workspace_name),
+    # )
+    # async for stream_mode, data in agent.astream(
+    #         {"messages": [{"role": "user", "content": body.content}]},
+    #         stream_mode=["messages", "custom"],
+    # ):
+    #     if stream_mode == "custom":
+    #         event_type = data.get("type") if isinstance(data, dict) else None
+    #         if event_type in {"tool.request", "tool.completed"}:
+    #             yield AIStreamEvent(
+    #                 event=event_type,
+    #                 data={key: value for key, value in data.items() if key != "type"},
+    #             )
+    #         continue
+
+    #     chunk, _metadata = data
+    #     if isinstance(chunk, AIMessageChunk):
+    #         yield chunk
+    graph = agent_runtime.create_graph()
+
+    state: AgentState = {
+        "messages": [
+            {
+                "role": "user",
+                "content": body.content,
+            }
+        ],
+        "mode": "agent",
+    }
+
+    if body.workspace_name:
+        state["workspace_name"] = body.workspace_name
+
+    context = AgentContext(
         user_id=body.user_id,
-        workspace_name=body.workspace_name,
+        model_config=body.config,
     )
-    logger.info(
-        "AI 运行已挂载 %d 个工具: workspace=%s conversation_id=%s",
-        len(tools),
-        body.workspace_name,
-        body.conversation_id,
-    )
-    agent = agent_runtime.create_agent(
-        body.config,
-        tools=tools,
-        system_prompt=build_workspace_prompt(body.workspace_name),
-    )
-    async for stream_mode, data in agent.astream(
-            {"messages": [{"role": "user", "content": body.content}]},
-            stream_mode=["messages", "custom"],
+
+    async for namespace, stream_mode, data in graph.astream(
+        state,
+        context=context,
+        stream_mode=["messages", "custom"],
+        # 同时接收内部子图的输出
+        subgraphs=True,
     ):
         if stream_mode == "custom":
             event_type = data.get("type") if isinstance(data, dict) else None
+
             if event_type in {"tool.request", "tool.completed"}:
                 yield AIStreamEvent(
                     event=event_type,
@@ -116,9 +158,19 @@ async def _stream_model_output(
                 )
             continue
 
-        chunk, _metadata = data
-        if isinstance(chunk, AIMessageChunk):
-            yield chunk
+        if stream_mode == "messages":
+            chunk, metadata = data
+
+            # 裸模型位于 executor；
+            # 带工具的 agent 位于 executor 内部的子图。
+            from_executor = (
+                namespace[0].split(":", 1)[0] == "executor"
+                if namespace
+                else metadata.get("langgraph_node") == "executor"
+            )
+
+            if from_executor and isinstance(chunk, AIMessageChunk):
+                yield chunk
 
 
 async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
@@ -145,7 +197,9 @@ async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
                 continue
 
             chunk = output
-            reasoning_delta = (chunk.additional_kwargs or {}).get("reasoning_content", "")
+            reasoning_delta = (chunk.additional_kwargs or {}).get(
+                "reasoning_content", ""
+            )
             if reasoning_delta:
                 full_reasoning_parts.append(reasoning_delta)
                 yield AIStreamEvent(
