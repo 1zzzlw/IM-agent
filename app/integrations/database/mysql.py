@@ -30,6 +30,7 @@ class MysqlService:
             charset=config.database.charset,
             cursorclass=DictCursor,
             autocommit=False,
+            init_command="SET time_zone = '+00:00'",
             connect_timeout=config.database.connect_timeout,
         )
         try:

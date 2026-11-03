@@ -8,14 +8,14 @@ from app.schemas.message import AgentConfigRequest
 class PatchedChatOpenAI(ChatOpenAI):
     """
     适配 OpenAI 的 ChatOpenAI 的子类
-    主要处理：思考模式参数注入、流式 reasoning_content 解析
+    保留兼容服务返回的 reasoning 字段；对外回复仅消费正文。
     """
 
     def _convert_chunk_to_generation_chunk(
-            self,
-            chunk: dict,
-            default_chunk_class: type,
-            base_generation_info: dict | None,
+        self,
+        chunk: dict,
+        default_chunk_class: type,
+        base_generation_info: dict | None,
     ):
         generation_chunk = super()._convert_chunk_to_generation_chunk(
             chunk,
@@ -42,11 +42,6 @@ class PatchedChatOpenAI(ChatOpenAI):
         return generation_chunk
 
 
-def _thinking_extra_body(runtime_config: AgentConfigRequest | None) -> dict:
-    enabled = runtime_config.enable_think if runtime_config else False
-    return {"thinking": {"type": "enabled" if enabled else "disabled"}}
-
-
 def get_default_model(runtime_config: AgentConfigRequest | None = None):
     """
     获取默认模型
@@ -55,8 +50,9 @@ def get_default_model(runtime_config: AgentConfigRequest | None = None):
         model=config.chat.llm_model,
         api_key=config.chat.llm_api_key,
         base_url=config.chat.llm_base_url,
+        timeout=60,
+        max_retries=0,
         temperature=runtime_config.model_temperature if runtime_config else 1.0,
-        extra_body=_thinking_extra_body(runtime_config),
     )
 
 
@@ -65,10 +61,7 @@ class PatchedChatMimo(PatchedChatOpenAI):
 
 
 def get_mimo_model(
-        model: str,
-        api_key: str,
-        base_url: str,
-        config: AgentConfigRequest | None = None
+    model: str, api_key: str, base_url: str, config: AgentConfigRequest | None = None
 ):
     """
     创建mimo的大模型实例
@@ -77,16 +70,14 @@ def get_mimo_model(
         model=model,
         api_key=api_key,
         base_url=base_url,
+        timeout=60,
+        max_retries=0,
         temperature=config.model_temperature if config else 1.0,
-        extra_body=_thinking_extra_body(config),
     )
 
 
 def get_deepseek_model(
-        model: str,
-        api_key: str,
-        base_url: str,
-        config: AgentConfigRequest | None = None
+    model: str, api_key: str, base_url: str, config: AgentConfigRequest | None = None
 ):
     """
     创建deepseek的大模型实例
@@ -95,16 +86,17 @@ def get_deepseek_model(
         model=model,
         api_key=api_key,
         base_url=base_url,
+        timeout=60,
+        max_retries=0,
         temperature=config.model_temperature if config else 1.0,
-        extra_body=_thinking_extra_body(config),
     )
 
 
 def get_ollama_model(
-        model: str,
-        api_key: str,
-        base_url: str,
-        config: AgentConfigRequest | None = None,
+    model: str,
+    api_key: str,
+    base_url: str,
+    config: AgentConfigRequest | None = None,
 ):
     """
     创建ollama的大模型实例
@@ -114,15 +106,15 @@ def get_ollama_model(
         api_key=api_key,
         base_url=base_url,
         temperature=config.model_temperature if config else 1.0,
-        reasoning=config.enable_think if config else False,
+        reasoning=False,
     )
 
 
 def get_openai_model(
-        model: str,
-        api_key: str,
-        base_url: str,
-        config: AgentConfigRequest | None = None,
+    model: str,
+    api_key: str,
+    base_url: str,
+    config: AgentConfigRequest | None = None,
 ):
     """
     创建openai的大模型实例
@@ -132,5 +124,7 @@ def get_openai_model(
         model=model,
         api_key=api_key,
         base_url=base_url,
+        timeout=60,
+        max_retries=0,
         temperature=config.model_temperature if config else 1.0,
     )

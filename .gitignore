@@ -11,4 +11,7 @@ wheels/
 
 .env
 
+# LangGraph Studio 本地开发服务的运行状态
+.langgraph_api/
+
 resources/storage/chroma

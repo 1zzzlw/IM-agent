@@ -19,6 +19,7 @@ class NacosConfig(BaseModel):
 
 
 class ModelConfig(BaseModel):
+    reply_timeout: float = Field(default=120, gt=0, le=600)
     llm_model: str = ""
     llm_base_url: str = ""
     llm_api_key: str = ""

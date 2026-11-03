@@ -7,7 +7,6 @@ from app.integrations.database.mysql import mysql_service
 from app.integrations.redis.client import redis_client
 from app.integrations.nacos import nacos_service
 from app.integrations.vector_store.client import chroma_client
-from app.integrations.vector_store.project_code_store import project_code_store
 
 from app.embedding.service import embedding_service
 
@@ -33,7 +32,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     finally:
         try:
             await nacos_service.deregister()
-            project_code_store.close()
             chroma_client.close()
             embedding_service.close()
         finally:
@@ -69,7 +67,6 @@ def init_embedding_service():
 def init_chroma_service():
     try:
         chroma_client.initialize()
-        project_code_store.initialize()
         logger.info("chroma服务初始化成功")
     except Exception:
         raise Exception("chroma服务初始化失败")

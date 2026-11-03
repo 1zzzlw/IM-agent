@@ -3,11 +3,8 @@ from typing import Any, Literal
 
 AIStreamEventName = Literal[
     "run.started",
-    "message.reasoning.delta",
     "message.delta",
     "message.completed",
-    "tool.request",
-    "tool.completed",
     "run.failed",
     "done",
 ]

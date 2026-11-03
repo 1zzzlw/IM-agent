@@ -1,262 +1,173 @@
 import asyncio
-import logging
-from collections.abc import AsyncIterator
+from contextlib import aclosing
+from uuid import uuid4
 
-from langchain_core.messages import AIMessageChunk
+from anyio import CancelScope
+from loguru import logger
 
+from app.agent.person.coordinator import dialogue_graph
+from app.agent.person.state import DialogueContext
 from app.agent.runtime import agent_runtime
-from app.agent.prompts import build_workspace_prompt
-from app.agent.tools.workspace import build_workspace_tools
-from app.integrations.database.conversation_repository import (
-    insert_ai_conversation,
-    select_ai_conversation,
-    touch_ai_conversation,
+from app.core.config import config
+from app.core.errors import ChatError
+from app.integrations.database.message_repository import (
+    begin_turn,
+    complete_turn,
+    fail_turn,
+    find_completed_turn,
 )
-from app.integrations.database.message_repository import insert_ai_message
-from app.schemas.message import AIMessageRequest
+from app.integrations.database.user_space_repository import dialogue_schema_ready
 from app.schemas.stream import AIStreamEvent
-
-from app.agent.state import AgentState, AgentContext
-
-logger = logging.getLogger(__name__)
+from app.services.character_service import dialogue_messages
+from app.services.model_config_service import resolve_model
 
 
-def create_conversation_title(content: str) -> str:
-    return " ".join(content.split())[:24] or "新的对话"
-
-
-# 数据库中插入用户消息
-def _prepare_user_message(body: AIMessageRequest) -> None:
-    conversation = select_ai_conversation(
-        conversation_id=body.conversation_id,
-        user_id=body.user_id,
+async def prepare_reply(body):
+    client_id = body.id or str(uuid4())
+    replay = await asyncio.to_thread(
+        find_completed_turn, body.user_id, client_id, body.content
     )
-    if conversation is None:
-        insert_ai_conversation(
-            conversation_id=body.conversation_id,
-            user_id=body.user_id,
-            title=create_conversation_title(body.content),
-        )
-
-    insert_ai_message(
-        conversation_id=body.conversation_id,
-        user_id=body.user_id,
-        role="user",
-        message_type=body.message_type,
-        content=body.content,
-        image_url=body.image_url,
-        personality_id=body.personality_id,
-        config_id=body.config.config_id,
+    if replay:
+        return replay, None
+    if not body.config.config_id and body.config.provider_name != "default":
+        raise ChatError("MODEL_CONFIG_REQUIRED", "请先保存并选择模型配置")
+    effective = await asyncio.to_thread(resolve_model, body.user_id, body.config)
+    model = agent_runtime.create_agent(effective)
+    turn = await asyncio.to_thread(
+        begin_turn,
+        body.user_id,
+        client_id,
+        body.content,
+        effective.config_id,
+        int(config.chat.reply_timeout) + 30,
     )
-    touch_ai_conversation(
-        conversation_id=body.conversation_id,
-        user_id=body.user_id,
-    )
+    return turn, model
 
 
-# 数据库中插入大模型响应的消息
-def _save_assistant_message(body: AIMessageRequest, content: str) -> int:
-    message_id = insert_ai_message(
-        conversation_id=body.conversation_id,
-        user_id=body.user_id,
-        role="assistant",
-        message_type=1,
-        content=content,
-        personality_id=body.personality_id,
-        config_id=body.config.config_id,
-    )
-    touch_ai_conversation(
-        conversation_id=body.conversation_id,
-        user_id=body.user_id,
-    )
-    return message_id
-
-
-async def _stream_model_output(
-    body: AIMessageRequest,
-) -> AsyncIterator[AIMessageChunk | AIStreamEvent]:
-    # # 没有 workspace_name，创建不带workspace工具的agent
-    # if not body.workspace_name:
-    #     # 注意：这条分支下 system prompt 也不会生效，模型是裸模型
-    #     logger.warning(
-    #         "AI 运行未携带 workspace_name，走纯文本分支（无工具、无 system prompt）: conversation_id=%s",
-    #         body.conversation_id,
-    #     )
-    #     # 基于当前对话的配置来创建 agent
-    #     model = agent_runtime.create_agent(body.config)
-    #     async for chunk in model.astream(body.content):
-    #         if isinstance(chunk, AIMessageChunk):
-    #             yield chunk
-    #     return
-
-    # # 有 workspace_name，挂载 workspace 专属工具；工作区本身由客户端持有，服务端不做登记
-    # tools = build_workspace_tools(
-    #     user_id=body.user_id,
-    #     workspace_name=body.workspace_name,
-    # )
-    # logger.info(
-    #     "AI 运行已挂载 %d 个工具: workspace=%s conversation_id=%s",
-    #     len(tools),
-    #     body.workspace_name,
-    #     body.conversation_id,
-    # )
-    # agent = agent_runtime.create_agent(
-    #     body.config,
-    #     tools=tools,
-    #     system_prompt=build_workspace_prompt(body.workspace_name),
-    # )
-    # async for stream_mode, data in agent.astream(
-    #         {"messages": [{"role": "user", "content": body.content}]},
-    #         stream_mode=["messages", "custom"],
-    # ):
-    #     if stream_mode == "custom":
-    #         event_type = data.get("type") if isinstance(data, dict) else None
-    #         if event_type in {"tool.request", "tool.completed"}:
-    #             yield AIStreamEvent(
-    #                 event=event_type,
-    #                 data={key: value for key, value in data.items() if key != "type"},
-    #             )
-    #         continue
-
-    #     chunk, _metadata = data
-    #     if isinstance(chunk, AIMessageChunk):
-    #         yield chunk
-    graph = agent_runtime.create_graph()
-
-    state: AgentState = {
-        "messages": [
-            {
-                "role": "user",
-                "content": body.content,
-            }
-        ],
-        "mode": "agent",
-    }
-
-    if body.workspace_name:
-        state["workspace_name"] = body.workspace_name
-
-    context = AgentContext(
-        user_id=body.user_id,
-        model_config=body.config,
+def _chunk_text(chunk):
+    if isinstance(chunk.content, str):
+        return chunk.content
+    return "".join(
+        block.get("text", "")
+        for block in chunk.content
+        if isinstance(block, dict)
+        and block.get("type") == "text"
+        and isinstance(block.get("text"), str)
     )
 
-    async for namespace, stream_mode, data in graph.astream(
-        state,
-        context=context,
-        stream_mode=["messages", "custom"],
-        # 同时接收内部子图的输出
-        subgraphs=True,
-    ):
-        if stream_mode == "custom":
-            event_type = data.get("type") if isinstance(data, dict) else None
 
-            if event_type in {"tool.request", "tool.completed"}:
-                yield AIStreamEvent(
-                    event=event_type,
-                    data={key: value for key, value in data.items() if key != "type"},
-                )
-            continue
-
-        if stream_mode == "messages":
-            chunk, metadata = data
-
-            # 裸模型位于 executor；
-            # 带工具的 agent 位于 executor 内部的子图。
-            from_executor = (
-                namespace[0].split(":", 1)[0] == "executor"
-                if namespace
-                else metadata.get("langgraph_node") == "executor"
-            )
-
-            if from_executor and isinstance(chunk, AIMessageChunk):
-                yield chunk
-
-
-async def stream_reply(body: AIMessageRequest) -> AsyncIterator[AIStreamEvent]:
-    full_content_parts: list[str] = []
-    full_reasoning_parts: list[str] = []
-
+async def stream_reply(turn, model):
+    finished = False
+    failure = "RUN_CANCELLED"
     try:
-        # 异步插入用户消息
-        await asyncio.to_thread(_prepare_user_message, body)
-
-        # 前端接收到 run.started 后开始展示 AI 消息
         yield AIStreamEvent(
-            event="run.started",
-            data={
-                "conversationId": body.conversation_id,
-                "clientMessageId": body.id,
+            "run.started",
+            {
+                "conversationId": turn["user_message"]["conversation_id"],
+                "clientMessageId": turn["user_message"]["client_message_id"],
+                "userMessageId": turn["user_message"]["id"],
+                "replayed": turn["reply"] is not None,
             },
         )
-
-        async for output in _stream_model_output(body):
-            if isinstance(output, AIStreamEvent):
-                # 工具事件，直接传给前端，再前端展示调用了什么工具
-                yield output
-                continue
-
-            chunk = output
-            reasoning_delta = (chunk.additional_kwargs or {}).get(
-                "reasoning_content", ""
-            )
-            if reasoning_delta:
-                full_reasoning_parts.append(reasoning_delta)
-                yield AIStreamEvent(
-                    event="message.reasoning.delta",
-                    data={"delta": reasoning_delta},
+        if turn["reply"] is not None:
+            reply = turn["reply"]
+        else:
+            chunks = []
+            async with asyncio.timeout(config.chat.reply_timeout):
+                async with aclosing(
+                    dialogue_graph.astream(
+                        {"messages": dialogue_messages(turn)},
+                        context=DialogueContext(model=model),
+                        stream_mode="messages",
+                    )
+                ) as output:
+                    async for chunk, metadata in output:
+                        if metadata.get("langgraph_node") != "dialogue":
+                            continue
+                        text = _chunk_text(chunk)
+                        if text:
+                            chunks.append(text)
+                            yield AIStreamEvent("message.delta", {"delta": text})
+            content = "".join(chunks)
+            if not content.strip():
+                raise ChatError(
+                    "EMPTY_MODEL_REPLY", "模型没有返回可显示的文字，请重试", 502
                 )
-
-            delta = chunk.text
-            if not delta:
-                continue
-
-            full_content_parts.append(delta)
-            yield AIStreamEvent(
-                event="message.delta",
-                data={"delta": delta},
-            )
-
-        full_content = "".join(full_content_parts)
-
-        # 异步添加大模型响应的消息到数据库中
-        message_id = await asyncio.to_thread(
-            _save_assistant_message,
-            body,
-            full_content,
-        )
-
-        # 一次性下发完整 content + reasoningContent，前端可用于兜底校验 / 重新渲染
+            reply = await asyncio.to_thread(complete_turn, body.user_id, turn, content)
+        finished = True
         yield AIStreamEvent(
-            event="message.completed",
-            data={
-                "messageId": str(message_id),
-                "content": full_content,
-                "reasoningContent": "".join(full_reasoning_parts),
+            "message.completed",
+            {
+                "messageId": reply["id"],
+                "conversationId": reply["conversation_id"],
+                "seq": reply["seq"],
+                "content": reply["content"],
             },
         )
-
-        # 发送运行完成的事件
-        yield AIStreamEvent(
-            event="done",
-            data={"conversationId": body.conversation_id},
-        )
-
-    # 一些异常处理
+        yield AIStreamEvent("done", {"success": True})
     except asyncio.CancelledError:
-        logger.info(
-            "AI stream cancelled: conversation_id=%s user_id=%s",
-            body.conversation_id,
-            body.user_id,
-        )
         raise
-    except Exception:
-        logger.exception(
-            "AI stream failed: conversation_id=%s user_id=%s",
-            body.conversation_id,
-            body.user_id,
+    except Exception as exc:
+        failure = (
+            exc.code
+            if isinstance(exc, ChatError)
+            else "MODEL_TIMEOUT"
+            if isinstance(exc, TimeoutError)
+            else "MODEL_REQUEST_FAILED"
+        )
+        # 不把供应商报错原文、请求体或 API Key 写入日志和客户端。
+        logger.warning(
+            "对话失败 task={} error_type={}", turn.get("task_id"), type(exc).__name__
         )
         yield AIStreamEvent(
-            event="run.failed",
-            data={"message": "模型调用失败，请稍后重试"},
+            "run.failed",
+            {
+                "code": failure,
+                "message": exc.message
+                if isinstance(exc, ChatError)
+                else "回复生成失败，请稍后重试；已发送的消息仍保留。",
+            },
         )
+        yield AIStreamEvent("done", {"success": False})
+    finally:
+        if not finished and turn.get("task_id"):
+            with CancelScope(shield=True):
+                try:
+                    await asyncio.to_thread(fail_turn, body.user_id, turn, failure)
+                except Exception:
+                    logger.error("对话任务收尾失败 task={}", turn["task_id"])
+
+
+def agent_status(user_id=None):
+    try:
+        if not dialogue_schema_ready():
+            return {
+                "available": False,
+                "code": "DATABASE_SCHEMA_INCOMPLETE",
+                "message": "AI 数据表尚未初始化完整",
+            }
+        effective = resolve_model(user_id, preflight=True)
+        return {
+            "available": True,
+            "code": "READY",
+            "message": "基础文字对话已就绪",
+            "mode": "basic_dialogue",
+            "requiresClientKey": effective.provider_name
+            not in ("default", "ollama:local")
+            and not effective.api_key,
+            "upstreamVerified": False,
+        }
+    except ChatError as exc:
+        return {"available": False, "code": exc.code, "message": exc.message}
+    except ValueError:
+        return {
+            "available": False,
+            "code": "MODEL_CONFIG_INVALID",
+            "message": "模型连接配置无效，请检查服务端或当前配置",
+        }
+    except Exception:
+        return {
+            "available": False,
+            "code": "DATABASE_UNAVAILABLE",
+            "message": "聊天服务暂时无法读取配置，请稍后重试",
+        }

@@ -1,6 +1,19 @@
 from typing import Any
+from uuid import uuid4
+import json
 
 from app.integrations.database.mysql import mysql_service
+from app.integrations.database.user_space_repository import (
+    user_transaction as _transaction,
+)
+
+
+class ModelConfigInUseError(ValueError):
+    pass
+
+
+class ModelConfigUnavailableError(ValueError):
+    pass
 
 
 def insert_model_config(
@@ -11,137 +24,156 @@ def insert_model_config(
     model_name: str,
     base_url: str | None,
     model_temperature: float = 1.0,
-    is_active: bool = False,
-) -> int:
-    sql = """
-          INSERT INTO ai_model_config (user_id,
-                                       config_name,
-                                       provider_name,
-                                       model_name,
-                                       base_url,
-                                       model_temperature,
-                                       is_active)
-          VALUES (%s, %s, %s, %s, %s, %s, %s) \
-          """
-    return mysql_service.insert(
-        sql,
-        (
-            user_id,
-            config_name,
-            provider_name,
-            model_name,
-            base_url,
-            model_temperature,
-            is_active,
-        ),
-    )
+) -> str:
+    config_id = str(uuid4())
+    with _transaction(user_id) as cursor:
+        cursor.execute(
+            """
+            INSERT INTO imagent_model_config
+                (id, owner_user_id, name, provider, model_name, base_url,
+                 parameters_json, capabilities_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                config_id,
+                user_id,
+                config_name,
+                provider_name,
+                model_name,
+                base_url,
+                json.dumps(
+                    {"schemaVersion": 1, "data": {"temperature": model_temperature}}
+                ),
+                json.dumps({"schemaVersion": 1, "source": "unverified"}),
+            ),
+        )
+    return config_id
+
+
+_MODEL_COLUMNS = """
+    SELECT c.id, %s AS user_id, c.name AS config_name,
+           c.provider AS provider_name, c.model_name, c.base_url,
+           COALESCE(JSON_EXTRACT(c.parameters_json, '$.data.temperature') + 0, 1) AS model_temperature,
+           (b.config_id IS NOT NULL) AS is_active,
+           (c.owner_user_id IS NULL) AS is_public,
+           c.credential_ref, c.created_at, c.updated_at
+    FROM imagent_model_config c
+    LEFT JOIN imagent_model_binding b
+      ON b.config_id = c.id AND b.scope_key = %s AND b.slot = 'dialogue'
+"""
 
 
 def select_model_configs(*, user_id: str) -> list[dict[str, Any]]:
-    sql = """
-        SELECT
-            id,
-            CAST(user_id AS CHAR) AS user_id,
-            config_name,
-            provider_name,
-            model_name,
-            base_url,
-            model_temperature,
-            is_active,
-            created_at,
-            updated_at
-        FROM ai_model_config
-        WHERE user_id = %s
-        ORDER BY is_active DESC, created_at DESC
-    """
-    return mysql_service.select(sql, (user_id,))
+    return mysql_service.select(
+        _MODEL_COLUMNS
+        + """
+        WHERE (c.owner_user_id = %s OR c.owner_user_id IS NULL)
+          AND c.status = 'enabled'
+        ORDER BY is_active DESC, c.created_at DESC, c.id
+        """,
+        (user_id, "user:" + user_id, user_id),
+    )
 
 
 def select_model_config_by_id(
-    *,
-    config_id: int,
-    user_id: str,
+    *, config_id: str, user_id: str | None
 ) -> dict[str, Any] | None:
-    sql = """
-        SELECT
-            id,
-            CAST(user_id AS CHAR) AS user_id,
-            config_name,
-            provider_name,
-            model_name,
-            base_url,
-            model_temperature,
-            is_active,
-            created_at,
-            updated_at
-        FROM ai_model_config
-        WHERE id = %s
-          AND user_id = %s
-        LIMIT 1
-    """
-    rows = mysql_service.select(sql, (config_id, user_id))
+    rows = mysql_service.select(
+        _MODEL_COLUMNS
+        + """
+        WHERE c.id = %s AND (c.owner_user_id = %s OR c.owner_user_id IS NULL)
+          AND c.status = 'enabled'
+        """,
+        (user_id, "user:" + user_id if user_id else "system", config_id, user_id),
+    )
     return rows[0] if rows else None
 
 
-def switch_model_config(*, config_id: int | None, user_id: str) -> int:
-    if config_id is None:
-        sql = """
-            UPDATE ai_model_config
-            SET is_active = 0
-            WHERE user_id = %s
-        """
-        return mysql_service.update(sql, (user_id,))
+def select_dialogue_binding(*, user_id: str | None) -> str | None:
+    """只选择绑定，不过滤停用模型；失效配置应报错而不是悄悄降级。"""
+    scope = "user:" + user_id if user_id else "system"
+    rows = mysql_service.select(
+        "SELECT config_id FROM imagent_model_binding "
+        "WHERE slot='dialogue' AND scope_key IN (%s, 'system') "
+        "ORDER BY (scope_key=%s) DESC LIMIT 1",
+        (scope, scope),
+    )
+    return rows[0]["config_id"] if rows else None
 
-    sql = """
-        UPDATE ai_model_config
-        SET is_active = CASE WHEN id = %s THEN 1 ELSE 0 END
-        WHERE user_id = %s
-    """
-    return mysql_service.update(sql, (config_id, user_id))
+
+def switch_model_config(*, config_id: str | None, user_id: str) -> None:
+    with _transaction(user_id) as cursor:
+        if config_id is None:
+            cursor.execute(
+                "DELETE FROM imagent_model_binding WHERE scope_key = %s AND slot = 'dialogue'",
+                ("user:" + user_id,),
+            )
+            return
+        cursor.execute(
+            "SELECT id FROM imagent_model_config "
+            "WHERE id = %s AND (owner_user_id = %s OR owner_user_id IS NULL) "
+            "AND status = 'enabled' FOR UPDATE",
+            (config_id, user_id),
+        )
+        if cursor.fetchone() is None:
+            raise ModelConfigUnavailableError("模型配置不存在或已停用")
+        cursor.execute(
+            """
+            INSERT INTO imagent_model_binding
+                (scope_key, owner_user_id, slot, config_id, version)
+            VALUES (%s, %s, 'dialogue', %s, 1)
+            ON DUPLICATE KEY UPDATE config_id = %s, version = version + 1
+            """,
+            ("user:" + user_id, user_id, config_id, config_id),
+        )
 
 
 def update_model_config(
     *,
-    config_id: int,
+    config_id: str,
     user_id: str,
     config_name: str,
     provider_name: str,
     model_name: str,
     base_url: str | None,
     model_temperature: float,
-    is_active: bool,
 ) -> int:
-    sql = """
-        UPDATE ai_model_config
-        SET
-            config_name = %s,
-            provider_name = %s,
-            model_name = %s,
-            base_url = %s,
-            model_temperature = %s,
-            is_active = %s
-        WHERE id = %s
-          AND user_id = %s
-    """
-    return mysql_service.update(
-        sql,
-        (
-            config_name,
-            provider_name,
-            model_name,
-            base_url,
-            model_temperature,
-            is_active,
-            config_id,
-            user_id,
-        ),
-    )
+    with _transaction(user_id) as cursor:
+        return cursor.execute(
+            """
+            UPDATE imagent_model_config
+            SET name = %s, provider = %s, model_name = %s, base_url = %s,
+                parameters_json = JSON_SET(parameters_json, '$.data.temperature', %s),
+                version = version + 1
+            WHERE id = %s AND owner_user_id = %s
+            """,
+            (
+                config_name,
+                provider_name,
+                model_name,
+                base_url,
+                model_temperature,
+                config_id,
+                user_id,
+            ),
+        )
 
 
-def delete_model_config(*, config_id: int, user_id: str) -> int:
-    sql = """
-        DELETE FROM ai_model_config
-        WHERE id = %s
-          AND user_id = %s
-    """
-    return mysql_service.delete(sql, (config_id, user_id))
+def delete_model_config(*, config_id: str, user_id: str) -> int:
+    with _transaction(user_id) as cursor:
+        cursor.execute(
+            "SELECT id FROM imagent_model_config WHERE id = %s AND owner_user_id = %s FOR UPDATE",
+            (config_id, user_id),
+        )
+        if cursor.fetchone() is None:
+            return 0
+        cursor.execute(
+            "SELECT scope_key FROM imagent_model_binding WHERE config_id = %s LIMIT 1",
+            (config_id,),
+        )
+        if cursor.fetchone() is not None:
+            raise ModelConfigInUseError("此配置仍被使用，请先切换或解除绑定后再删除")
+        return cursor.execute(
+            "DELETE FROM imagent_model_config WHERE id = %s AND owner_user_id = %s",
+            (config_id, user_id),
+        )
