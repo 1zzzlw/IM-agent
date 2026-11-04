@@ -1,6 +1,6 @@
+import json
 from typing import Any
 from uuid import uuid4
-import json
 
 from app.integrations.database.mysql import mysql_service
 from app.integrations.database.user_space_repository import (
@@ -89,14 +89,12 @@ def select_model_config_by_id(
     return rows[0] if rows else None
 
 
-def select_dialogue_binding(*, user_id: str | None) -> str | None:
+def select_model_binding(*, scope_key: str, slot: str) -> str | None:
     """只选择绑定，不过滤停用模型；失效配置应报错而不是悄悄降级。"""
-    scope = "user:" + user_id if user_id else "system"
     rows = mysql_service.select(
         "SELECT config_id FROM imagent_model_binding "
-        "WHERE slot='dialogue' AND scope_key IN (%s, 'system') "
-        "ORDER BY (scope_key=%s) DESC LIMIT 1",
-        (scope, scope),
+        "WHERE slot=%s AND scope_key=%s LIMIT 1",
+        (slot, scope_key),
     )
     return rows[0]["config_id"] if rows else None
 
@@ -167,6 +165,11 @@ def delete_model_config(*, config_id: str, user_id: str) -> int:
         )
         if cursor.fetchone() is None:
             return 0
+        # 旧版允许个人绑定辅助/媒体模型；这些绑定已不参与运行，也不再阻止删除。
+        cursor.execute(
+            "DELETE FROM imagent_model_binding WHERE scope_key=%s AND config_id=%s AND slot<>'dialogue'",
+            ("user:" + user_id, config_id),
+        )
         cursor.execute(
             "SELECT scope_key FROM imagent_model_binding WHERE config_id = %s LIMIT 1",
             (config_id,),

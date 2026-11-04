@@ -5,6 +5,12 @@ description = "Lumina-Agent · 微光，个性化情感聊天 Agent 服务"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=46.0.0",
+    "tzdata>=2025.2",
+    "httpx>=0.28.1",
+    "python-multipart>=0.0.20",
+    "pydantic-settings>=2.10.0",
+    "python-dotenv>=1.1.0",
     "chromadb>=1.5.9",
     "dbutils>=3.1.2",
     "fastapi[standard]>=0.141.1",

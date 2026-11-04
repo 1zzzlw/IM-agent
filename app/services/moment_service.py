@@ -1,4 +1,8 @@
-"""朋友圈业务服务。
+"""朋友圈读取与互动：保留 api → services → repository 的分层入口。
 
-负责动态记录、可见范围和用户及虚拟伙伴的互动；待实现。
+业务规则（可见性、幂等、互动版本）都在 moment_repository 里，这里不重复实现。
 """
+
+from app.integrations.database.moment_repository import feed, interact
+
+__all__ = ["feed", "interact"]

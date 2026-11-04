@@ -1,0 +1,647 @@
+// imAgent 数据模型，由 docs/sql/imagent_init.sql 生成（25 张表 / 58 条外键）
+
+TableGroup "用户与人物" {
+  imagent_user_space
+  imagent_world
+  imagent_actor
+  imagent_character_candidate
+}
+
+TableGroup "心理与成长" {
+  imagent_actor_state
+  imagent_relationship
+  imagent_goal
+  imagent_state_change
+}
+
+TableGroup "生活与记忆" {
+  imagent_life_event
+  imagent_experience
+  imagent_observation
+  imagent_memory
+  imagent_memory_source
+}
+
+TableGroup "聊天与多模态" {
+  imagent_message
+  imagent_message_delivery
+  imagent_media_asset
+  imagent_call_session
+}
+
+TableGroup "朋友圈" {
+  imagent_moment
+  imagent_moment_audience
+  imagent_moment_interaction
+}
+
+TableGroup "模型与任务" {
+  imagent_model_config
+  imagent_model_binding
+  imagent_background_task
+}
+
+TableGroup "同步与管理员" {
+  imagent_client_event
+  imagent_admin_operation
+}
+
+// ---- 表定义 ----
+
+Table imagent_user_space {
+  user_id varchar(64) [pk, note: '现有用户系统中的用户标识']
+  active_world_id varchar(36) [note: '唯一在用世界；初次创建前及管理员允许重建时为空']
+  settings_json json [note: '用户状态可见性和通知设置；不保存人格']
+  settings_version bigint [note: '设置版本']
+  next_event_seq bigint [note: '已分配的最后一个用户事件序号']
+  event_floor_seq bigint [note: '已清理事件的序号水位']
+  last_seen_at datetime [note: '客户端最近心跳；隐藏时不提供给角色']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (active_world_id) [unique]
+  }
+
+  Note: '用户空间与唯一在用角色入口'
+}
+
+Table imagent_model_config {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  owner_user_id varchar(64) [note: '为空表示管理员公共配置']
+  name varchar(100) [note: '配置名称']
+  provider varchar(64) [note: '模型供应方']
+  model_name varchar(160) [note: '模型名称']
+  base_url varchar(500) [note: '自定义服务地址']
+  credential_ref varchar(128) [note: '运行时凭据引用，不是 API Key']
+  parameters_json json [note: '温度等模型参数']
+  capabilities_json json [note: '经过配置或探测的能力描述']
+  status varchar(32) [note: '配置状态；ENUM: enabled / disabled']
+  version bigint [note: '配置版本']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  Note: '可复用的公共或用户模型配置'
+}
+
+Table imagent_model_binding {
+  scope_key varchar(80) [note: 'system 或 user:用户标识；非空以保证公共默认唯一']
+  owner_user_id varchar(64) [note: '公共默认时为空']
+  slot varchar(32) [note: 'dialogue/memory/retrieval/event/embedding/vision/image/asr/tts/audio_emotion']
+  config_id varchar(36) [note: '引用的模型配置']
+  version bigint [note: '绑定版本']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (scope_key, slot) [pk]
+  }
+
+  Note: '各 Agent 与多模态能力的显式模型绑定'
+}
+
+Table imagent_world {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  user_id varchar(64) [note: '世界所属用户']
+  primary_actor_id varchar(36) [note: '唯一主 AI 人物']
+  user_actor_id varchar(36) [note: '用户在本世界的人物投影']
+  active_call_id varchar(36) [note: '当前通话指针']
+  status varchar(32) [note: '世界生命周期；ENUM: initializing / active / archived']
+  state_version bigint [note: '世界权威状态提交版本']
+  next_message_seq bigint [note: '最后分配的世界消息序号']
+  initial_snapshot_json json [note: '创建时的初始设定模板；管理员重置使用']
+  last_tick_at datetime [note: '后台最后实际推进时间']
+  archived_at datetime [note: '归档时间']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (id, user_id) [unique]
+  }
+
+  Note: '一次角色生命周期对应的独立世界'
+}
+
+Table imagent_actor {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  actor_type varchar(32) [note: '用户投影或虚拟人物；主 AI 由世界指针指定；ENUM: user / virtual']
+  display_name varchar(100) [note: '显示名']
+  public_profile_json json [note: '可公开的头像和表面介绍']
+  private_profile_json json [note: '人格、兴趣、背景、知识与技能；伙伴仅需简单性格描述']
+  voice_profile_json json [note: '稳定声线身份、供应方映射与参考媒体']
+  residence_timezone varchar(64) [note: '居住地时区，例如 Asia/Shanghai']
+  age_years int [note: '已提交的当前年龄']
+  birthday_month_day varchar(5) [note: '可选生日 MM-DD']
+  status varchar(32) [note: '人物在本世界的状态；ENUM: present / inactive']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, id) [unique]
+  }
+
+  Note: '主 AI、虚拟伙伴与用户投影的统一人物身份'
+}
+
+Table imagent_actor_state {
+  world_id varchar(36) [note: '所属生活世界']
+  actor_id varchar(36) [note: '对应人物']
+  emotion_json json [note: '有版本的情绪状态与原因，不固定情绪维度']
+  routine_json json [note: '真实作息、睡眠与精力状态']
+  display_state_json json [note: '选择公开或伪装的对外状态']
+  context_json json [note: '当前活动、关注点和其他运行上下文']
+  version bigint [note: '最后更新时的世界状态版本']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, actor_id) [pk]
+  }
+
+  Note: '人物的当前心理与生活状态快照'
+}
+
+Table imagent_media_asset {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  user_id varchar(64) [note: '媒体所有者']
+  world_id varchar(36) [note: '创建候选阶段可空；确认后绑定世界']
+  client_asset_id varchar(36) [note: '用户上传重试标识']
+  kind varchar(32) [note: '媒体种类；ENUM: image / audio']
+  mime_type varchar(100) [note: '实际媒体格式']
+  storage_key varchar(500) [note: '服务端生成的存储键，不接受任意客户端磁盘路径']
+  size_bytes bigint [note: '大小']
+  sha256 varchar(64) [note: '内容摘要']
+  duration_ms bigint [note: '音频时长']
+  metadata_json json [note: '图像尺寸、音频格式、声线引用及播出对齐信息']
+  analysis_json json [note: '图片理解、转写和声音情绪线索；内部使用']
+  status varchar(32) [note: '媒体处理状态；ENUM: processing / ready / failed']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (user_id, client_asset_id) [unique]
+  }
+
+  Note: '图片、短语音、声线参考与生成媒体'
+}
+
+Table imagent_relationship {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  from_actor_id varchar(36) [note: '持有此关系判断的人物']
+  to_actor_id varchar(36) [note: '关系对象']
+  relation_label varchar(64) [note: '陌生、朋友等语义描述；不等同于数值等级']
+  assessment_json json [note: '信任、亲近、反感等有依据的判断，具体维度待算法设计']
+  contact_policy_json json [note: 'AI 对该对象的关心、免打扰等设置']
+  last_interaction_at datetime [note: '最近实际互动时间']
+  version bigint [note: '最后变更的世界版本']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, from_actor_id, to_actor_id) [unique]
+  }
+
+  Note: '人物间有方向的关系及联系偏好'
+}
+
+Table imagent_goal {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  actor_id varchar(36) [note: '目标所属人物']
+  title varchar(200) [note: '目标名称']
+  description text [note: '目标内容']
+  status varchar(32) [note: '目标状态；ENUM: active / paused / succeeded / failed / abandoned']
+  progress_json json [note: '阶段、进度与结果依据']
+  target_at datetime [note: '可选目标期限']
+  version bigint [note: '最后变更的世界版本']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, id) [unique]
+  }
+
+  Note: '长期目标及其可持续变化的进展'
+}
+
+Table imagent_life_event {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  kind varchar(32) [note: '事件类型；ENUM: random / routine / appointment / shared_activity / learning']
+  title varchar(200) [note: '事件或活动名称']
+  initiator_actor_id varchar(36) [note: '发起人物']
+  participant_ids_json json [note: '本世界参与者列表']
+  goal_id varchar(36) [note: '受影响的目标']
+  phase varchar(32) [note: '事情产生、事件经历、最终影响；ENUM: generated / experiencing / impact_applied']
+  status varchar(32) [note: '生命周期；ENUM: planned / running / suspended / completed / cancelled / missed']
+  scheduled_start_at datetime [note: '计划开始']
+  scheduled_end_at datetime [note: '计划结束']
+  started_at datetime [note: '实际开始']
+  ended_at datetime [note: '实际结束']
+  next_step_at datetime [note: '下次实际推进条件对应的时间']
+  progress_json json [note: '过程、已推进时长、选择及后续条件']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, id) [unique]
+  }
+
+  Note: '随机事件、作息安排、约定与共同活动的生命周期'
+}
+
+Table imagent_experience {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  event_id varchar(36) [note: '关联的生活事件']
+  kind varchar(40) [note: '初始往事、用户陈述、发言、动作、互动等']
+  realm varchar(32) [note: '用户自述、模拟世界或共同虚拟经历；ENUM: user_report / virtual_world / shared_virtual']
+  participant_ids_json json [note: '此条经过的参与者']
+  actual_json json [note: '此时实际发生的经过，发言表示说过而非内容属实']
+  occurred_at datetime [note: '发生时间；初始往事无明确日期时可空']
+  recorded_at datetime [note: '实际记录时间']
+  dedupe_key varchar(160) [note: '同一条经过的稳定去重标识']
+  payload_hash varchar(64) [note: '去重时核对内容']
+
+  indexes {
+    (world_id, id) [unique]
+    (world_id, dedupe_key) [unique]
+  }
+
+  Note: '不可改写的已发生经过，按动作或阶段追加'
+}
+
+Table imagent_observation {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  experience_id varchar(36) [note: '对应某条不可变经过']
+  observer_actor_id varchar(36) [note: '获知人物']
+  source_actor_id varchar(36) [note: '直接来源人物']
+  source_observation_id varchar(36) [note: '转述时的来源观察，仅供内部追溯']
+  method varchar(32) [note: '获知方式；ENUM: direct / retold / visible_post / initial_seed / notification']
+  perceived_json json [note: '当时实际看到或听到的内容快照']
+  obtained_at datetime [note: '获知时间']
+  created_at datetime [note: '写入时间']
+
+  indexes {
+    (world_id, id) [unique]
+    (world_id, observer_actor_id, id) [unique]
+    (world_id, experience_id, observer_actor_id) [unique]
+  }
+
+  Note: '某个人物实际获知的经过与局部内容'
+}
+
+Table imagent_memory {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  owner_actor_id varchar(36) [note: '记忆持有人']
+  kind varchar(40) [note: '事实、经历、反思、知识等语义类别']
+  epistemic_type varchar(32) [note: '亲自获知、转述或推测；ENUM: observed / reported / inferred']
+  content text [note: '记忆正文；遗忘后可按保留策略清理']
+  subject_actor_ids_json json [note: '相关人物']
+  cognition_json json [note: '记忆程度、重要性、可信程度及算法版本等']
+  status varchar(32) [note: '记忆生命周期；ENUM: active / faded / forgotten / superseded']
+  valid_from datetime [note: '信息成立起点']
+  valid_until datetime [note: '信息失效时间']
+  supersedes_id varchar(36) [note: '被此记忆修正的旧记忆']
+  revision bigint [note: '记忆内容版本']
+  last_accessed_at datetime [note: '最近唤起时间']
+  embedding_space varchar(160) [note: '向量模型与维度的索引命名空间']
+  indexed_revision bigint [note: '已同步到向量库的版本']
+  index_status varchar(32) [note: '索引同步状态；ENUM: pending / ready / failed']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, owner_actor_id, id) [unique]
+  }
+
+  Note: '角色长期记忆正文、认知与检索索引状态'
+}
+
+Table imagent_memory_source {
+  world_id varchar(36) [note: '所属生活世界']
+  owner_actor_id varchar(36) [note: '记忆持有人，也是观察者']
+  memory_id varchar(36) [note: '记忆']
+  observation_id varchar(36) [note: '支持或修正记忆的观察']
+  source_role varchar(32) [note: '依据作用；ENUM: supporting / contradicting']
+  created_at datetime [note: '关联时间']
+
+  indexes {
+    (memory_id, observation_id) [pk]
+  }
+
+  Note: '记忆与观察之间的多对多依据'
+}
+
+Table imagent_background_task {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  user_id varchar(64) [note: '任务所属用户']
+  world_id varchar(36) [note: '创建候选时可为空']
+  kind varchar(40) [note: 'dialogue/memory/retrieval/event/media/candidate 等']
+  visibility varchar(32) [note: '是否允许用户查看任务进度；ENUM: internal / user']
+  dedupe_key varchar(160) [note: '同种任务的稳定幂等标识']
+  request_hash varchar(64) [note: '输入摘要']
+  payload_json json [note: '输入引用与阶段上下文；不含密钥']
+  result_json json [note: '结果引用；不直接作为用户响应']
+  status varchar(32) [note: '执行状态；ENUM: queued / running / succeeded / failed / cancelled']
+  run_after datetime [note: '最早调度时间']
+  lease_owner varchar(100) [note: '领取任务的进程']
+  lease_until datetime [note: '执行租约截止']
+  attempts int [note: '已执行次数']
+  error_code varchar(64) [note: '规范化错误码']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (id, user_id) [unique]
+    (user_id, kind, dedupe_key) [unique]
+  }
+
+  Note: '四类 Agent 及媒体、候选生成任务的执行进度'
+}
+
+Table imagent_character_candidate {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  user_id varchar(64) [note: '创建者']
+  batch_id varchar(36) [note: '一次完整重新生成的批次']
+  generation_task_id varchar(36) [note: '生成任务']
+  wish_text text [note: '用户的简单期望描述']
+  meeting_mode varchar(64) [note: '选择的相识方式']
+  public_preview_json json [note: '仅表面介绍和可试听声线候选']
+  generated_bundle_json json [note: '初始人物、背景、伙伴和往事等完整内部设定']
+  status varchar(32) [note: '候选状态；ENUM: ready / selected / discarded / expired']
+  selected_world_id varchar(36) [note: '选中后创建的世界']
+  selection_key varchar(160) [note: '确认创建的幂等键']
+  selection_hash varchar(64) [note: '确认请求摘要']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (selected_world_id) [unique]
+  }
+
+  Note: '未正式创建的人物候选，不作为运行中的角色'
+}
+
+Table imagent_state_change {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  source_experience_id varchar(36) [note: '触发此变化的已发生经过']
+  origin_type varchar(32) [note: '变化发起类型；ENUM: agent / admin / system']
+  origin_id varchar(36) [note: '内部任务或管理员操作标识']
+  change_key varchar(160) [note: '独立影响标识；重试时保持不变']
+  request_hash varchar(64) [note: '变化内容摘要']
+  before_version bigint [note: '依据的世界状态版本']
+  after_version bigint [note: '成功提交后的版本']
+  changes_json json [note: '获准修改的字段、前后值与对象引用']
+  appraisal_json json [note: '感受、理由与依据引用；仅内部可见']
+  created_at datetime [note: '提交时间']
+
+  indexes {
+    (world_id, id) [unique]
+    (world_id, change_key) [unique]
+    (world_id, after_version) [unique]
+  }
+
+  Note: '一次统一状态提交的前后版本与依据'
+}
+
+Table imagent_call_session {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  caller_actor_id varchar(36) [note: '首版仅用户投影']
+  callee_actor_id varchar(36) [note: '首版仅主 AI']
+  client_call_id varchar(36) [note: '客户端呼叫幂等标识']
+  status varchar(32) [note: '通话状态；ENUM: ringing / connected / rejected / missed / ended']
+  transport_json json [note: '协商后的媒体格式与连接参数，不含持久化访问令牌']
+  generation_epoch bigint [note: '插话或结束时递增以作废旧语音输出']
+  connected_at datetime [note: '实际接通']
+  ended_at datetime [note: '实际结束']
+  end_reason varchar(64) [note: '公开的结束原因，不保存内部心理解释']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, id) [unique]
+    (world_id, client_call_id) [unique]
+  }
+
+  Note: '用户呼入 AI 的实时语音会话'
+}
+
+Table imagent_message {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  seq bigint [note: '本世界消息顺序']
+  sender_actor_id varchar(36) [note: '发送人物；系统通话记录可空']
+  origin varchar(32) [note: '来源身份，由服务端确定；ENUM: user / agent / system']
+  channel varchar(32) [note: '普通聊天或通话发言；ENUM: chat / call']
+  call_id varchar(36) [note: '通话发言所属会话']
+  client_message_id varchar(36) [note: '用户消息的重试标识']
+  dedupe_key varchar(160) [note: '每一条表达的稳定去重标识']
+  payload_hash varchar(64) [note: '请求或表达内容摘要']
+  parts_json json [note: '文字、图片或音频等内容块']
+  reply_to_id varchar(36) [note: '本世界被引用的消息']
+  source_experience_id varchar(36) [note: '实际发送此表达的经过']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, id) [unique]
+    (world_id, seq) [unique]
+    (world_id, dedupe_key) [unique]
+  }
+
+  Note: '长期聊天与通话发言的对外表达记录'
+}
+
+Table imagent_message_delivery {
+  world_id varchar(36) [note: '所属生活世界']
+  message_id varchar(36) [note: '消息']
+  viewer_actor_id varchar(36) [note: '仅消息参与方的视图人物']
+  delivered_at datetime [note: '实际送达']
+  read_at datetime [note: '实际阅读']
+  displayed_read_at datetime [note: '允许对另一方展示的已读时间']
+  played_ms bigint [note: '单调递增的已播时长']
+  heard_content text [note: '由播出对齐数据计算的已听内容']
+  hidden_at datetime [note: '管理员清理此视图历史的时间']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, message_id, viewer_actor_id) [pk]
+  }
+
+  Note: '消息的各方视图、真实回执与历史隐藏'
+}
+
+Table imagent_moment {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  author_actor_id varchar(36) [note: '由服务端校验为本世界主 AI']
+  parts_json json [note: '文字和图片内容块']
+  source_experience_id varchar(36) [note: '触发分享的经历']
+  expression_json json [note: '表达选择及事实关联；内部使用']
+  dedupe_key varchar(160) [note: '发布去重标识']
+  status varchar(32) [note: '发布状态；ENUM: published / withdrawn']
+  version bigint [note: '内容及互动的可见版本']
+  published_at datetime [note: '发布时间']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, id) [unique]
+    (world_id, dedupe_key) [unique]
+  }
+
+  Note: '只有主 AI 可以发布的朋友圈动态'
+}
+
+Table imagent_moment_audience {
+  world_id varchar(36) [note: '所属生活世界']
+  moment_id varchar(36) [note: '动态']
+  viewer_actor_id varchar(36) [note: '被允许查看的人物']
+  granted_at datetime [note: '授权时间']
+  revoked_at datetime [note: '撤回可见授权']
+  seen_version bigint [note: '实际看到的最后一个动态版本']
+  last_viewed_at datetime [note: '实际浏览时间']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, moment_id, viewer_actor_id) [pk]
+  }
+
+  Note: '动态对各人物的显式可见授权与实际浏览'
+}
+
+Table imagent_moment_interaction {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  world_id varchar(36) [note: '所属生活世界']
+  moment_id varchar(36) [note: '所属动态']
+  actor_id varchar(36) [note: '互动人物']
+  kind varchar(32) [note: '互动类型；ENUM: like / comment']
+  content text [note: '评论正文；点赞为空']
+  reply_to_id varchar(36) [note: '回复的同动态评论']
+  active boolean [note: '点赞是否有效或评论是否展示']
+  dedupe_key varchar(160) [note: '点赞为固定键，评论使用请求键']
+  payload_hash varchar(64) [note: '重试核对输入']
+  revision bigint [note: '互动变更版本']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (world_id, moment_id, id) [unique]
+    (world_id, moment_id, actor_id, dedupe_key) [unique]
+  }
+
+  Note: '用户与虚拟伙伴的点赞及评论'
+}
+
+Table imagent_client_event {
+  user_id varchar(64) [note: '事件所属用户']
+  event_seq bigint [note: '在用户空间锁内分配的连续序号']
+  world_id varchar(36) [note: '候选进度等创建前事件可空']
+  event_type varchar(64) [note: '消息、通话、动态或公开任务状态']
+  resource_type varchar(40) [note: '关联公开资源类型']
+  resource_id varchar(64) [note: '关联资源标识']
+  payload_json json [note: '经过公开 DTO 投影的内容；发送时再次校验可见范围']
+  dedupe_key varchar(160) [note: '发布幂等标识']
+  created_at datetime [note: '入流时间']
+
+  indexes {
+    (user_id, event_seq) [pk]
+    (user_id, dedupe_key) [unique]
+  }
+
+  Note: '客户端可见变更的持久事件流'
+}
+
+Table imagent_admin_operation {
+  id varchar(36) [pk, note: '应用生成的 UUID']
+  operator_user_id varchar(64) [note: '可信管理员身份']
+  target_user_id varchar(64) [note: '被处理用户']
+  world_id varchar(36) [note: '被处理世界']
+  kind varchar(32) [note: '操作类型；ENUM: intervention / history_clear / reset / recreate / model_default']
+  reason text [note: '人工处理原因']
+  request_key varchar(160) [note: '操作幂等标识']
+  request_hash varchar(64) [note: '操作参数摘要']
+  parameters_json json [note: '操作范围、来源经历和参数']
+  state_change_id varchar(36) [note: '关联的状态变化']
+  result_world_id varchar(36) [note: '重置后新世界']
+  result_json json [note: '执行结果引用']
+  status varchar(32) [note: '处理状态；ENUM: pending / completed / failed']
+  created_at datetime [note: '创建时间']
+  updated_at datetime [note: '修改时间']
+
+  indexes {
+    (operator_user_id, request_key) [unique]
+  }
+
+  Note: '管理员干预、历史清理与重置的审计记录'
+}
+
+// ---- 外键关系 ----
+
+Ref: imagent_model_config.owner_user_id > imagent_user_space.user_id
+Ref: imagent_model_binding.owner_user_id > imagent_user_space.user_id
+Ref: imagent_model_binding.config_id > imagent_model_config.id
+Ref: imagent_world.user_id > imagent_user_space.user_id
+Ref: imagent_actor.world_id > imagent_world.id
+Ref: imagent_actor_state.(world_id, actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_media_asset.user_id > imagent_user_space.user_id
+Ref: imagent_media_asset.(world_id, user_id) > imagent_world.(id, user_id)
+Ref: imagent_relationship.(world_id, from_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_relationship.(world_id, to_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_goal.(world_id, actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_life_event.world_id > imagent_world.id
+Ref: imagent_life_event.(world_id, initiator_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_life_event.(world_id, goal_id) > imagent_goal.(world_id, id)
+Ref: imagent_experience.world_id > imagent_world.id
+Ref: imagent_experience.(world_id, event_id) > imagent_life_event.(world_id, id)
+Ref: imagent_observation.(world_id, experience_id) > imagent_experience.(world_id, id)
+Ref: imagent_observation.(world_id, observer_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_observation.(world_id, source_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_observation.(world_id, source_observation_id) > imagent_observation.(world_id, id)
+Ref: imagent_memory.(world_id, owner_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_memory.(world_id, owner_actor_id, supersedes_id) > imagent_memory.(world_id, owner_actor_id, id)
+Ref: imagent_memory_source.(world_id, owner_actor_id, memory_id) > imagent_memory.(world_id, owner_actor_id, id)
+Ref: imagent_memory_source.(world_id, owner_actor_id, observation_id) > imagent_observation.(world_id, observer_actor_id, id)
+Ref: imagent_background_task.user_id > imagent_user_space.user_id
+Ref: imagent_background_task.(world_id, user_id) > imagent_world.(id, user_id)
+Ref: imagent_character_candidate.user_id > imagent_user_space.user_id
+Ref: imagent_character_candidate.(generation_task_id, user_id) > imagent_background_task.(id, user_id)
+Ref: imagent_character_candidate.(selected_world_id, user_id) > imagent_world.(id, user_id)
+Ref: imagent_state_change.world_id > imagent_world.id
+Ref: imagent_state_change.(world_id, source_experience_id) > imagent_experience.(world_id, id)
+Ref: imagent_call_session.world_id > imagent_world.id
+Ref: imagent_call_session.(world_id, caller_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_call_session.(world_id, callee_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_message.world_id > imagent_world.id
+Ref: imagent_message.(world_id, sender_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_message.(world_id, call_id) > imagent_call_session.(world_id, id)
+Ref: imagent_message.(world_id, reply_to_id) > imagent_message.(world_id, id)
+Ref: imagent_message.(world_id, source_experience_id) > imagent_experience.(world_id, id)
+Ref: imagent_message_delivery.(world_id, message_id) > imagent_message.(world_id, id)
+Ref: imagent_message_delivery.(world_id, viewer_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_moment.(world_id, author_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_moment.(world_id, source_experience_id) > imagent_experience.(world_id, id)
+Ref: imagent_moment_audience.(world_id, moment_id) > imagent_moment.(world_id, id)
+Ref: imagent_moment_audience.(world_id, viewer_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_moment_interaction.(world_id, moment_id) > imagent_moment.(world_id, id)
+Ref: imagent_moment_interaction.(world_id, actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_moment_interaction.(world_id, moment_id, reply_to_id) > imagent_moment_interaction.(world_id, moment_id, id)
+Ref: imagent_client_event.user_id > imagent_user_space.user_id
+Ref: imagent_client_event.(world_id, user_id) > imagent_world.(id, user_id)
+Ref: imagent_admin_operation.target_user_id > imagent_user_space.user_id
+Ref: imagent_admin_operation.(world_id, target_user_id) > imagent_world.(id, user_id)
+Ref: imagent_admin_operation.(world_id, state_change_id) > imagent_state_change.(world_id, id)
+Ref: imagent_admin_operation.(result_world_id, target_user_id) > imagent_world.(id, user_id)
+Ref: imagent_user_space.(active_world_id, user_id) > imagent_world.(id, user_id)
+Ref: imagent_world.(id, primary_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_world.(id, user_actor_id) > imagent_actor.(world_id, id)
+Ref: imagent_world.(id, active_call_id) > imagent_call_session.(world_id, id)

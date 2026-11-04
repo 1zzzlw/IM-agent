@@ -6,6 +6,7 @@ AIStreamEventName = Literal[
     "message.delta",
     "message.completed",
     "run.failed",
+    "run.interrupted",
     "done",
 ]
 

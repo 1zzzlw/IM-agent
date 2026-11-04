@@ -1,7 +1,7 @@
-from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
-from app.core.config import config
+from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
+
 from app.schemas.message import AgentConfigRequest
 
 
@@ -40,20 +40,6 @@ class PatchedChatOpenAI(ChatOpenAI):
             message.additional_kwargs["reasoning_content"] = existing + reasoning
 
         return generation_chunk
-
-
-def get_default_model(runtime_config: AgentConfigRequest | None = None):
-    """
-    获取默认模型
-    """
-    return PatchedChatOpenAI(
-        model=config.chat.llm_model,
-        api_key=config.chat.llm_api_key,
-        base_url=config.chat.llm_base_url,
-        timeout=60,
-        max_retries=0,
-        temperature=runtime_config.model_temperature if runtime_config else 1.0,
-    )
 
 
 class PatchedChatMimo(PatchedChatOpenAI):

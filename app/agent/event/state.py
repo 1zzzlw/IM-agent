@@ -1,4 +1,15 @@
-"""事件的运行上下文与进度定义。
+from dataclasses import dataclass
+from typing import Any, TypedDict
 
-承载参与人物、已发生经过和下一步推进条件；具体数据定义待细化。
-"""
+
+class EventState(TypedDict, total=False):
+    snapshot: dict
+    proposal: dict
+    experience: dict
+    impact: dict
+    finishing: bool
+
+
+@dataclass
+class EventContext:
+    model: Any

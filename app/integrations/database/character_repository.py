@@ -4,6 +4,14 @@ from uuid import uuid4
 from app.core.errors import ChatError
 
 
+def checked_world(cursor, user_id, world_id):
+    """锁定并核对当前世界：写库前防止把本轮结果写进已被重置的新角色。"""
+    world = lock_current_world(cursor, user_id)
+    if not world or world["id"] != world_id:
+        raise ChatError("WORLD_CHANGED", "角色已变化，请刷新", 409)
+    return world
+
+
 def lock_current_world(cursor, user_id: str, *, create: bool = False):
     cursor.execute(
         "SELECT active_world_id FROM imagent_user_space WHERE user_id=%s", (user_id,)

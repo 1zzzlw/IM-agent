@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from loguru import logger
 from v2.nacos import (
     ClientConfigBuilder,
@@ -7,6 +9,15 @@ from v2.nacos import (
     RegisterInstanceParam,
 )
 from app.core.config import config
+
+# Nacos SDK 默认把客户端日志和缓存写到 ~/logs/nacos、~/nacos/cache，
+# 该路径在部分启动身份下不可写，会导致 TimedRotatingFileHandler 抛
+# PermissionError 直接中断应用启动。这里统一收敛到项目内的运行时目录。
+_NACOS_RUNTIME_DIR = (
+    Path(__file__).resolve().parents[2] / "resources" / "storage" / "nacos"
+)
+_NACOS_LOG_DIR = _NACOS_RUNTIME_DIR / "logs"
+_NACOS_CACHE_DIR = _NACOS_RUNTIME_DIR / "cache"
 
 
 
@@ -19,6 +30,8 @@ class NacosService:
             ClientConfigBuilder()
             .server_address(config.nacos.server_addr)
             .log_level("INFO")
+            .log_dir(str(_NACOS_LOG_DIR))
+            .cache_dir(str(_NACOS_CACHE_DIR))
             .grpc_config(GRPCConfig(grpc_timeout=5000))
             .build()
         )
@@ -51,7 +64,7 @@ class NacosService:
             raise RuntimeError("注册 im-agent 到 Nacos 失败")
 
         logger.info(
-            "Nacos 注册成功: service=%s, address=%s:%s",
+            "Nacos 注册成功: service={}, address={}:{}",
             config.nacos.service_name,
             config.nacos.register_ip,
             config.nacos.register_port,
@@ -73,7 +86,7 @@ class NacosService:
                 )
             )
 
-            logger.info("Nacos 实例注销成功: %s", config.nacos.service_name)
+            logger.info("Nacos 实例注销成功: {}", config.nacos.service_name)
         finally:
             await self._client.shutdown()
             self._client = None

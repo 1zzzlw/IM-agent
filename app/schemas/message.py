@@ -3,6 +3,7 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import Field, field_validator
+
 from app.schemas.base import ApiModel
 
 ProviderName = Literal[
@@ -31,6 +32,7 @@ class AIMessageRequest(ApiModel):
     role: Literal["user"] = "user"
     message_type: Literal[1] = 1
     content: str = Field(min_length=1, max_length=10000)
+    asset_ids: list[str] = Field(default_factory=list, max_length=4)
     image_url: None = None
     personality_id: None = None
     config: AgentConfigRequest = Field(default_factory=AgentConfigRequest)
@@ -56,6 +58,7 @@ class AIMessageResponse(ApiModel):
     role: str
     message_type: int
     content: str
+    parts: dict | list | None = None
     image_url: str | None = None
     personality_id: str | None = None
     config_id: str | None = None

@@ -9,22 +9,22 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from uuid import uuid4
 from unittest.mock import patch
+from uuid import uuid4
 
 import pymysql
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.config import config
-from app.core.errors import ChatError
 from app.api.ai_message import router as message_router
 from app.api.model_config import router as config_router
-from app.integrations.database.mysql import mysql_service
+from app.core.config import ModelsConfig, ModelSlotConfig, config
+from app.core.errors import ChatError
 from app.integrations.database.message_repository import (
     begin_turn,
     complete_turn,
 )
+from app.integrations.database.mysql import mysql_service
 from app.schemas.message import AIMessageRequest
 from app.services.ai_message_service import prepare_reply, stream_reply
 
@@ -32,7 +32,7 @@ from app.services.ai_message_service import prepare_reply, stream_reply
 @unittest.skipUnless(
     os.environ.get("IMAGENT_TEST_MYSQL") == "1", "仅显式启用真实 MySQL 测试"
 )
-class DialogueMysqlTests(unittest.TestCase):
+class MysqlFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.database_name = "lumina_test_" + uuid4().hex
@@ -78,12 +78,47 @@ class DialogueMysqlTests(unittest.TestCase):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 owner.requests.append(body)
                 last = body["messages"][-1]["content"]
-                if last == "upstream-error":
+                if "upstream-error" in str(last):
                     self.send_response(500)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(
                         b'{"error":{"message":"fixture-secret-key must never leak"}}'
+                    )
+                    return
+                if not body.get("stream"):
+                    system = body["messages"][0]["content"]
+                    response = (
+                        "{}" if "JSON Schema" in system else "你好，" + str(last) + "。"
+                    )
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(
+                        json.dumps(
+                            {
+                                "id": "fixture",
+                                "object": "chat.completion",
+                                "created": 1,
+                                "model": "fixture-model",
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": response,
+                                        },
+                                        "finish_reason": "stop",
+                                    }
+                                ],
+                                "usage": {
+                                    "prompt_tokens": 1,
+                                    "completion_tokens": 1,
+                                    "total_tokens": 2,
+                                },
+                            },
+                            ensure_ascii=False,
+                        ).encode()
                     )
                     return
                 self.send_response(200)
@@ -141,9 +176,33 @@ class DialogueMysqlTests(unittest.TestCase):
         self.app = FastAPI()
         self.app.include_router(message_router)
         self.app.include_router(config_router)
-        self.client = TestClient(self.app)
-        self.addCleanup(self.client.close)
+        from fastapi.responses import JSONResponse
+
+        @self.app.exception_handler(ChatError)
+        async def chat_error(_request, exc):
+            return JSONResponse(
+                status_code=exc.status,
+                content={"detail": {"code": exc.code, "message": exc.message}},
+            )
+
+        # 同一客户端保持一个事件循环，与真实 ASGI 服务一致；否则供应方的
+        # keep-alive 连接会跨入每次请求临时创建且已关闭的测试循环。
+        self.client = self.enterContext(TestClient(self.app))
         self.url = "http://127.0.0.1:" + str(self.server.server_port) + "/v1"
+        self.live_models = config.models
+        self.enterContext(
+            patch.object(
+                config,
+                "models",
+                ModelsConfig(
+                    dialogue=ModelSlotConfig(
+                        model="fixture-fixed",
+                        base_url=self.url,
+                        api_key="fixture-secret-key",
+                    )
+                ),
+            )
+        )
         self.configuration = self.add_config(self.user)
 
     def add_config(self, user):
@@ -195,6 +254,42 @@ class DialogueMysqlTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+
+class DialogueMysqlTests(MysqlFixture):
+    def test_environment_only_chat_and_retrieval_need_no_saved_model_configuration(
+        self,
+    ):
+        deleted = self.client.delete(
+            "/ai-message/config/deleteModel/" + self.configuration,
+            params={"userId": self.user},
+        )
+        self.assertEqual(deleted.status_code, 200)
+        models = ModelsConfig(
+            dialogue=ModelSlotConfig(
+                model="env-dialogue", base_url=self.url, api_key="fixture-secret-key"
+            ),
+            retrieval=ModelSlotConfig(model="env-retrieval"),
+        )
+        start = len(self.requests)
+        with patch.object(config, "models", models):
+            response = self.send("只用环境配置聊天", config={"providerName": "default"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.events(response)[-1], ("done", {"success": True}))
+        self.assertEqual(
+            [request["model"] for request in self.requests[start:]],
+            ["env-retrieval", "env-dialogue", "env-dialogue"],
+        )
+        self.assertEqual(len(self.history()), 2)
+        self.assertTrue(all(message["configId"] is None for message in self.history()))
+        self.assertNotIn("fixture-secret-key", response.text)
+        self.assertEqual(
+            mysql_service.select(
+                "SELECT COUNT(*) n FROM imagent_model_config WHERE owner_user_id=%s",
+                (self.user,),
+            )[0]["n"],
+            0,
+        )
+
     def test_real_stream_context_persistence_replay_and_pagination(self):
         client_id = str(uuid4())
         start_count = len(self.requests)
@@ -206,8 +301,6 @@ class DialogueMysqlTests(unittest.TestCase):
             [event for event, _ in events],
             [
                 "run.started",
-                "message.delta",
-                "message.delta",
                 "message.completed",
                 "done",
             ],
@@ -225,7 +318,7 @@ class DialogueMysqlTests(unittest.TestCase):
         replay = self.send("我的名字是小林", client_id)
         self.assertEqual(replay.status_code, 200)
         self.assertTrue(self.events(replay)[0][1]["replayed"])
-        self.assertEqual(len(self.requests), start_count + 1)
+        self.assertEqual(len(self.requests), start_count + 3)
         self.assertEqual(len(self.history()), 2)
         conflict = self.send("另一个内容", client_id)
         self.assertEqual(conflict.status_code, 409)
@@ -264,7 +357,7 @@ class DialogueMysqlTests(unittest.TestCase):
             4,
         )
         tasks = mysql_service.select(
-            "SELECT payload_json,status FROM imagent_background_task WHERE user_id=%s",
+            "SELECT payload_json,status FROM imagent_background_task WHERE user_id=%s AND kind='dialogue'",
             (self.user,),
         )
         self.assertTrue(all(task["status"] == "succeeded" for task in tasks))
@@ -282,7 +375,7 @@ class DialogueMysqlTests(unittest.TestCase):
         self.assertEqual(len(self.history()), 1)
         self.assertEqual(
             mysql_service.select(
-                "SELECT attempts FROM imagent_background_task WHERE user_id=%s",
+                "SELECT attempts FROM imagent_background_task WHERE user_id=%s AND kind='dialogue'",
                 (self.user,),
             )[0]["attempts"],
             2,
@@ -301,7 +394,9 @@ class DialogueMysqlTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         started = self.events(response)[0][1]
         self.assertTrue(started["clientMessageId"])
-        self.assertEqual(self.history()[0]["clientMessageId"], started["clientMessageId"])
+        self.assertEqual(
+            self.history()[0]["clientMessageId"], started["clientMessageId"]
+        )
         payload["id"] = started["clientMessageId"]
         replay = self.client.post("/ai-message/sendMessage", json=payload)
         self.assertTrue(self.events(replay)[0][1]["replayed"])
@@ -396,9 +491,7 @@ class DialogueMysqlTests(unittest.TestCase):
 
     def test_model_switch_preserves_character_world_and_context(self):
         self.assertEqual(self.history(), [])
-        ready = self.client.get(
-            "/ai-message/status", params={"userId": self.user}
-        )
+        ready = self.client.get("/ai-message/status", params={"userId": self.user})
         self.assertEqual(ready.status_code, 200)
         self.assertEqual(
             mysql_service.select(
@@ -415,23 +508,25 @@ class DialogueMysqlTests(unittest.TestCase):
         )
         self.assertEqual(switched.status_code, 200)
         response = self.send(
-            "切换后继续聊", config={"providerName": "default", "apiKey": "fixture-secret-key"}
+            "切换后继续聊",
+            config={"providerName": "default", "apiKey": "fixture-secret-key"},
         )
         self.assertEqual(self.events(response)[-1], ("done", {"success": True}))
         history = self.history()
         self.assertEqual(len(history), 4)
         self.assertTrue(all(item["conversationId"] == world_id for item in history))
         self.assertIn(
-            "切换前的共同对话", json.dumps(self.requests[-1]["messages"], ensure_ascii=False)
+            "切换前的共同对话",
+            json.dumps(self.requests[-1]["messages"], ensure_ascii=False),
         )
 
     def test_busy_turn_lease_recovery_and_stale_result_rejection(self):
         first_id, second_id = str(uuid4()), str(uuid4())
         first = begin_turn(self.user, first_id, "one", self.configuration, 180)
-        with self.assertRaises(ChatError) as busy:
-            begin_turn(self.user, second_id, "two", self.configuration, 180)
-        self.assertEqual(busy.exception.code, "DIALOGUE_BUSY")
-        self.assertEqual(len(self.history()), 1)
+        begin_turn(self.user, second_id, "two", self.configuration, 180)
+        with self.assertRaises(ChatError):
+            complete_turn(self.user, first, "已被新消息中断")
+        self.assertEqual(len(self.history()), 2)
         mysql_service.update(
             "UPDATE imagent_background_task SET lease_until=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND) WHERE id=%s",
             (first["task_id"],),
@@ -440,7 +535,7 @@ class DialogueMysqlTests(unittest.TestCase):
         with self.assertRaises(ChatError):
             complete_turn(self.user, first, "过期回复")
         complete_turn(self.user, recovered, "恢复完成")
-        self.assertEqual(len(self.history()), 2)
+        self.assertEqual(len(self.history()), 3)
 
     def test_cancelled_stream_has_no_fake_assistant_record_and_releases_turn(self):
         async def check():
@@ -469,6 +564,7 @@ class DialogueMysqlTests(unittest.TestCase):
         os.environ.get("IMAGENT_TEST_LIVE_MODEL") == "1", "仅显式启用真实模型小样本"
     )
     def test_live_default_model_two_turn_dialogue(self):
+        self.enterContext(patch.object(config, "models", self.live_models))
         first = self.send(
             "请记住本轮暗号：棉花云。只回复记住了。", config={"providerName": "default"}
         )
@@ -540,9 +636,14 @@ class DialogueMysqlTests(unittest.TestCase):
             (public_id,),
         )
         try:
-            with patch.dict(os.environ, {"LUMINA_TEST_KEY": "fixture-secret-key"}):
+            with (
+                patch.object(config.models, "dialogue", ModelSlotConfig()),
+                patch.dict(os.environ, {"LUMINA_TEST_KEY": "fixture-secret-key"}),
+            ):
                 anonymous_status = self.client.get("/ai-message/status")
-                self.assertTrue(anonymous_status.json()["available"], anonymous_status.text)
+                self.assertTrue(
+                    anonymous_status.json()["available"], anonymous_status.text
+                )
                 response = self.send("继承公共默认", config={"providerName": "default"})
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual(self.events(response)[-1], ("done", {"success": True}))

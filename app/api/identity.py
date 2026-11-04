@@ -1,4 +1,5 @@
 import json
+
 from fastapi import HTTPException, Request
 
 
@@ -21,8 +22,11 @@ async def validate_gateway_user(request: Request):
         raise HTTPException(status_code=401, detail="网关登录信息无效")
     claimed = request.query_params.get("userId")
     if request.method in ("POST", "PUT", "PATCH"):
-        body = await request.json()
-        if isinstance(body, dict):
-            claimed = body.get("userId", body.get("user_id", claimed))
+        if "multipart/form-data" in request.headers.get("content-type", ""):
+            claimed = (await request.form()).get("userId", claimed)
+        else:
+            body = await request.json()
+            if isinstance(body, dict):
+                claimed = body.get("userId", body.get("user_id", claimed))
     if claimed is not None and str(claimed) != user_id:
         raise HTTPException(status_code=403, detail="不能访问其他用户的 AI 资料")

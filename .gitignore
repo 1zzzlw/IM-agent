@@ -15,3 +15,5 @@ wheels/
 .langgraph_api/
 
 resources/storage/chroma
+resources/storage/runtime/
+resources/storage/nacos/
